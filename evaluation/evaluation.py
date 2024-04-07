@@ -3,7 +3,6 @@ import json
 import os
 import traceback
 
-from datasets import load_dataset, load_from_disk
 from collections import Counter
 from rich import print
 from swebench import (
@@ -23,7 +22,8 @@ from swebench.harness.constants import (
 from unidiff import PatchSet
 
 
-def main(predictions_path, log_dir, swe_bench_tasks, testbed, skip_existing, timeout, verbose, conda_link, log_suffix, num_processes):
+def main(predictions_path, log_dir, swe_bench_tasks, testbed, skip_existing, timeout, verbose,
+         conda_link, log_suffix, num_processes):
     # Check if paths exist
     if not os.path.exists(predictions_path):
         raise FileNotFoundError(f"Predictions path {predictions_path} does not exist")
@@ -49,7 +49,8 @@ def main(predictions_path, log_dir, swe_bench_tasks, testbed, skip_existing, tim
                 f.write("\n")
                 pred_will_eval += 1
     print(
-        f"Found {pred_total} total predictions, will evaluate {pred_will_eval} ({pred_total-pred_will_eval} are empty)"
+        f"Found {pred_total} total predictions, will evaluate {pred_will_eval} "
+        f"({pred_total-pred_will_eval} are empty)"
     )
 
     # Run evaluation
@@ -114,9 +115,7 @@ def main(predictions_path, log_dir, swe_bench_tasks, testbed, skip_existing, tim
         scorecard["statuses"].append("generated")
 
         # Get log file
-        log_path = os.path.join(
-            log_dir, f"{p[KEY_INSTANCE_ID]}.{directory_name}.eval.log"
-        )
+        log_path = os.path.join(log_dir, f"{p[KEY_INSTANCE_ID]}.{directory_name}.eval.log")
         if not os.path.exists(log_path):
             scorecard["statuses"].append("build_failure")
             scorecards.append(scorecard)

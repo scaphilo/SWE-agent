@@ -1,0 +1,15 @@
+ anthropic
+ config
+ datasets
+ gymnasium
+ numpy
+ openai>=1.0
+ pandas
+ rich
+ ruamel.yaml==0.18.6
+ swebench>=1.0.1
+ tenacity
+ unidiff
+ simple-parsing
+ together
+ ollama
