@@ -7,7 +7,6 @@ import config
 from ghapi.core import GhApi
 from git import Repo
 
-from swe_agent.environment.swe_env import LONG_TIMEOUT
 from swe_agent.environment.utils import get_instances, get_gh_issue_data, parse_gh_issue_url, parse_gh_repo_url, \
     format_trajectory_markdown, copy_file_to_container
 
@@ -21,7 +20,7 @@ PATH_TO_ENV_YML = "/root/environment.yml"
 
 
 class GitCommunicationManagement:
-    def __init__(self, data_path, is_github_url, split, idx, logger, no_mirror, docker_communication):
+    def __init__(self, data_path, is_github_url, split, idx, logger, no_mirror, docker_communication, timeout):
         self.docker_communication = docker_communication
         self.idx = idx
         self.split = split
@@ -30,6 +29,7 @@ class GitCommunicationManagement:
         self.data_path = data_path
         self.base_commit = None
         self.is_github_url = is_github_url
+        self.timeout = timeout
         self.logger.info(f"💽 Loaded dataset from {self.data_path}")
 
         # Set GitHub Token
@@ -51,6 +51,15 @@ class GitCommunicationManagement:
             self.token = self.cfg.get("GITHUB_TOKEN", "git")
         self.data = get_instances(self.data_path, self.base_commit, self.split, token=self.token)
         self.record = self.data[idx]
+
+    def get_data(self):
+        return self.data
+
+    def get_record(self):
+        return self.record
+
+    def get_token(self):
+        return self.token
 
     def open_pull_request(self, action_config, info, trajectory):
         """Create PR to repository"""
@@ -165,14 +174,14 @@ class GitCommunicationManagement:
                 self.docker_communication.communicate_with_handling(
                     input=f"git clone https://{self.token}@github.com/swe-bench/{repo_name}.git",
                     error_msg="Failed to clone repository from mirror",
-                    timeout_duration=LONG_TIMEOUT,
+                    timeout_duration=self.timeout,
                 )
             else:
                 self.logger.info(f"Trying to clone from non-mirror...")
                 self.docker_communication.communicate_with_handling(
                     input=f"git clone https://{self.token}@github.com/{self.record['repo']}.git {repo_name}",
                     error_msg="Failed to clone repository from non-mirror",
-                    timeout_duration=LONG_TIMEOUT,
+                    timeout_duration=self.timeout,
                 )
 
         # Clean repository of any modifications + Checkout base commit
@@ -215,7 +224,7 @@ class GitCommunicationManagement:
             self.docker_communication.communicate_with_handling(
                 f"apt update; apt install build-essential -y",
                 error_msg="Failed to install build-essential",
-                timeout_duration=LONG_TIMEOUT,
+                timeout_duration=self.timeout,
             )
 
         # Call install environment helper function if specified
@@ -258,7 +267,7 @@ class GitCommunicationManagement:
         # Create environment if does not exist yet
         env_name = f"{repo_name}__{self.record['version']}"
         env_check = self.docker_communication.communicate(
-            f"conda env list | grep {env_name}", timeout_duration=LONG_TIMEOUT
+            f"conda env list | grep {env_name}", timeout_duration=self.timeout
         )
         install_configs = MAP_VERSION_TO_INSTALL[self.record["repo"]][
             str(self.record["version"])
@@ -273,7 +282,7 @@ class GitCommunicationManagement:
                 self.docker_communication.communicate_with_handling(
                     f"conda create -n {env_name} python={install_configs['python']} -y",
                     error_msg="Failed to create conda environment",
-                    timeout_duration=LONG_TIMEOUT,
+                    timeout_duration=self.timeout,
                 )
                 # Write reqs to requirements.txt in docker container
                 content_reqs = get_requirements(self.record)
@@ -286,7 +295,7 @@ class GitCommunicationManagement:
                 self.docker_communication.communicate_with_handling(
                     f"pip install -r {PATH_TO_REQS}",
                     error_msg="Failed to install requirements.txt",
-                    timeout_duration=LONG_TIMEOUT,
+                    timeout_duration=self.timeout,
                 )
                 self.docker_communication.communicate(f"rm {PATH_TO_REQS}")
             elif packages == "environment.yml":
@@ -298,20 +307,20 @@ class GitCommunicationManagement:
                     self.docker_communication.communicate_with_handling(
                         f"conda create -c conda-forge -n {env_name} python={install_configs['python']} -y",
                         error_msg="Failed to create conda environment",
-                        timeout_duration=LONG_TIMEOUT,
+                        timeout_duration=self.timeout,
                     )
                     # Install packages
                     self.docker_communication.communicate_with_handling(
                         f"conda env update -f {PATH_TO_ENV_YML}",
                         error_msg="Failed to install environment.yml",
-                        timeout_duration=LONG_TIMEOUT
+                        timeout_duration=self.timeout
                     )
                 else:
                     # Create environment + install packages
                     self.docker_communication.communicate_with_handling(
                         f"conda env create --file {PATH_TO_ENV_YML}",
                         error_msg="Failed to create conda environment with environment.yml",
-                        timeout_duration=LONG_TIMEOUT,
+                        timeout_duration=self.timeout,
                     )
                 self.docker_communication.communicate(f"rm {PATH_TO_ENV_YML}")
             else:
@@ -319,14 +328,14 @@ class GitCommunicationManagement:
                 self.docker_communication.communicate_with_handling(
                     f"conda create -n {env_name} python={install_configs['python']} {packages} -y",
                     error_msg="Failed to create conda environment",
-                    timeout_duration=LONG_TIMEOUT,
+                    timeout_duration=self.timeout,
                 )
             # Install extra pip packages if specified
             if "pip_packages" in install_configs:
                 self.docker_communication.communicate_with_handling(
                     f"source activate {env_name} && pip install {install_configs['pip_packages']}",
                     error_msg="Failed to install pip packages",
-                    timeout_duration=LONG_TIMEOUT
+                    timeout_duration=self.timeout
                 )
 
         # Activate environment
@@ -349,7 +358,7 @@ class GitCommunicationManagement:
             self.docker_communication.communicate_with_handling(
                 install_cmd,
                 error_msg="Install command failed to execute successfully",
-                timeout_duration=LONG_TIMEOUT
+                timeout_duration=self.timeout
             )
         if "post_install" in install_configs:
             self.logger.info("Running post-install commands...")

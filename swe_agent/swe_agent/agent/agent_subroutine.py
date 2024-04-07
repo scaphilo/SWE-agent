@@ -3,7 +3,6 @@ from typing import Optional, Any
 
 from simple_parsing.helpers import FrozenSerializable
 
-from swe_agent import ModelArguments
 
 
 @dataclass(frozen=True)
@@ -15,5 +14,5 @@ class AgentSubroutine(FrozenSerializable):
     end_name: Optional[str] = None
     signature: Optional[str] = None
     docstring: Optional[str] = None
-    model: Optional[ModelArguments] = None
+    model = None
     agent_args: Optional[Any] = None

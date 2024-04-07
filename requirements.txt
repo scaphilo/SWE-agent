@@ -11,6 +11,6 @@
  swebench>=1.0.1
  tenacity
  unidiff
- simple-parsing
+ simple-parsing==0.1.5
  together
  ollama

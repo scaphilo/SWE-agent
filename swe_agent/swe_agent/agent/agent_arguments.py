@@ -5,16 +5,13 @@ from typing import Optional
 from simple_parsing import field
 from simple_parsing.helpers import FlattenedAccess, FrozenSerializable
 
-from swe_agent import ModelArguments
 from swe_agent.swe_agent.agent.agent_config import AgentConfig
 
 
 @dataclass(frozen=True)
 class AgentArguments(FlattenedAccess, FrozenSerializable):
-    model: ModelArguments = None
-
-    # Policy can only be set via config yaml file from command line
-    config_file: Optional[Path] = None
+    model: Optional['ModelArguments'] = None
+    config_file: Optional['Path'] = None
     config: Optional[AgentConfig] = field(default=None, cmd=False)
 
     def __post_init__(self):

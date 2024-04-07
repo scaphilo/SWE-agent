@@ -12,14 +12,13 @@ from pathlib import Path
 from rich.logging import RichHandler
 from simple_parsing import parse
 from simple_parsing.helpers import FrozenSerializable, FlattenedAccess
-from swe_agent import (
-    Agent,
-    AgentArguments,
-    EnvironmentArguments,
-    ModelArguments,
-    EnvironmentManagement,
-    get_data_path_name,
-)
+from swe_agent.swe_agent.agent.agent_arguments import AgentArguments
+from swe_agent.swe_agent.agent.agents import Agent
+from swe_agent.swe_agent.model.model_arguments import ModelArguments
+from swe_agent.environment.swe_env import EnvironmentArguments
+from swe_agent.environment.utils import get_data_path_name
+from swe_agent.environment.swe_env import EnvironmentManagement
+
 from swebench import KEY_INSTANCE_ID, KEY_MODEL, KEY_PREDICTION
 from unidiff import PatchSet
 
@@ -57,7 +56,7 @@ class ActionsArguments(FlattenedAccess, FrozenSerializable):
 @dataclass(frozen=True)
 class ScriptArguments(FlattenedAccess, FrozenSerializable):
     environment: EnvironmentArguments
-    agent: AgentArguments
+    agent: 'AgentArguments'
     actions: ActionsArguments
     instance_filter: str = ".*"  # Only run instances that completely match this regex
     skip_existing: bool = True  # Skip instances with existing trajectories
@@ -94,10 +93,10 @@ def main(args: ScriptArguments):
 
     save_arguments(traj_dir, args)
 
-    for index in range(len(env.data)):
+    for index in range(len(env.get_git_communication_management().get_data())):
         try:
             # Reset environment
-            instance_id = env.data[index]["instance_id"]
+            instance_id = env.get_git_communication_management().get_data()[index]["instance_id"]
             if should_skip(args, traj_dir, instance_id):
                 continue
             logger.info("▶️  Beginning task " + str(index))
@@ -109,20 +108,20 @@ def main(args: ScriptArguments):
             # Get info, patch information
             issue = getattr(env, "query", None)
             files = []
-            if "patch" in env.record:
+            if "patch" in env.get_git_communication_management().get_record():
                 files = "\n".join(
-                    [f"- {x.path}" for x in PatchSet(env.record["patch"]).modified_files]
+                    [f"- {x.path}" for x in PatchSet(env.get_git_communication_management().get_record()["patch"]).modified_files]
                 )
             # Get test files, F2P tests information
             test_files = []
-            if "test_patch" in env.record:
-                test_patch_obj = PatchSet(env.record["test_patch"])
+            if "test_patch" in env.get_git_communication_management().get_record():
+                test_patch_obj = PatchSet(env.get_git_communication_management().get_record()["test_patch"])
                 test_files = "\n".join(
                     [f"- {x.path}" for x in test_patch_obj.modified_files + test_patch_obj.added_files]
                 )
             tests = ""
-            if "FAIL_TO_PASS" in env.record:
-                tests = "\n".join([f"- {x}" for x in env.record["FAIL_TO_PASS"]])
+            if "FAIL_TO_PASS" in env.get_git_communication_management().get_record():
+                tests = "\n".join([f"- {x}" for x in env.get_git_communication_management().get_record()["FAIL_TO_PASS"]])
 
             setup_args = {
                 "issue": issue,
@@ -138,8 +137,8 @@ def main(args: ScriptArguments):
                 return_type="info_trajectory",
             )
             save_predictions(traj_dir, instance_id, info)
-            if args.actions.open_pr and should_open_pr(args, info, token=env.token):
-                env.open_pr(args.actions, info, trajectory)
+            if args.actions.open_pr and should_open_pr(args, info, token=env.get_git_communication_management().get_token()):
+                env.get_git_communication_management().open_pull_request(args.actions, info, trajectory)
 
         except KeyboardInterrupt:
             logger.info("Exiting InterCode environment...")
@@ -147,8 +146,8 @@ def main(args: ScriptArguments):
             break
         except Exception as e:
             traceback.print_exc()
-            logger.warning(f"❌ Failed on {env.record['instance_id']}: {e}")
-            env.reset_container()
+            logger.warning(f"❌ Failed on {env.get_git_communication_management().get_record()['instance_id']}: {e}")
+            env.get_docker_communication().reset_container()
             continue
 
 
@@ -250,6 +249,13 @@ def save_predictions(traj_dir, instance_id, info):
 
 
 if __name__ == "__main__":
+    model = ModelArguments(
+        model_name="gpt4",
+        total_cost_limit=0.0,
+        per_instance_cost_limit=3.0,
+        temperature=0.0,
+        top_p=0.95,
+    ),
     defaults = ScriptArguments(
         suffix="",
         environment=EnvironmentArguments(
@@ -261,13 +267,7 @@ if __name__ == "__main__":
         ),
         skip_existing=True,
         agent=AgentArguments(
-            model=ModelArguments(
-                model_name="gpt4",
-                total_cost_limit=0.0,
-                per_instance_cost_limit=3.0,
-                temperature=0.0,
-                top_p=0.95,
-            ),
+            model= model,
             config_file="config/default.yaml",
         ),
         actions=ActionsArguments(open_pr=False, skip_if_commits_reference_issue=True),

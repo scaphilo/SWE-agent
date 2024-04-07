@@ -69,7 +69,14 @@ class EnvironmentManagement(gym.Env):
                                                                        self.split,
                                                                        self.logger,
                                                                        self.no_mirror,
-                                                                       self.docker_communication, )
+                                                                       self.docker_communication,
+                                                                       timeout=LONG_TIMEOUT)
+
+    def get_git_communication_management(self):
+        return self.git_communication_management
+
+    def get_docker_communication(self):
+        return self.docker_communication
 
     def reset(self, index: int = None, apply_test_patch: bool = False):
         self.git_communication_management.reset(index, apply_test_patch)

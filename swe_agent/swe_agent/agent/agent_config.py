@@ -4,7 +4,6 @@ from typing import Optional, Any, Tuple
 from simple_parsing import field
 from simple_parsing.helpers import FrozenSerializable
 
-from swe_agent import AgentArguments
 from swe_agent.swe_agent.agent.agent_subroutine import AgentSubroutine
 from swe_agent.swe_agent.command.commands import Command
 from swe_agent.swe_agent.command.command_parser import CommandParser
@@ -28,7 +27,7 @@ class AgentConfig(FrozenSerializable):
     util_functions: list[str] = field(default_factory=list)
     submit_command: str = "submit"
     parse_function: str = "ThoughtActionParser"
-    parse_command: str = "ParseCommandBash"
+    parse_command: str = "BashCommandParser"
     history_processor: str = "DefaultHistoryProcessor"
     history_processor_args: dict[str, Any] = field(default_factory=dict)
     command_docs: str = None
@@ -94,6 +93,7 @@ class AgentConfig(FrozenSerializable):
         for subroutine in self.subroutine_types:
             if subroutine.name == 'submit':
                 raise ValueError("Cannot use 'submit' as a subroutine name")
+            from swe_agent import AgentArguments
             agent_args = AgentArguments(
                 model=subroutine.model,
                 config_file=subroutine.agent_file,

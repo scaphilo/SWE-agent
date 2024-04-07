@@ -1,16 +1,8 @@
 import logging
-
 from swe_agent import ModelArguments
 from swe_agent.swe_agent.command.commands import Command
 from typing import Optional
-
-from swe_agent.swe_agent.model.anthropic_swe_agent_model import AnthropicModel
-from swe_agent.swe_agent.model.human_swe_agent_model import HumanModel
-from swe_agent.swe_agent.model.human_thought_swe_agent_model import HumanThoughtModel
 from swe_agent.swe_agent.model.model_apistats import APIStats
-from swe_agent.swe_agent.model.ollama_swe_agent_model import OllamaModel
-from swe_agent.swe_agent.model.open_ai_swe_agent_model import OpenAIModel
-from swe_agent.swe_agent.model.replay_swe_agent_model import ReplayModel
 
 logger = logging.getLogger("api_models")
 
@@ -129,6 +121,13 @@ def get_model(args: ModelArguments, commands: Optional[list[Command]] = None):
     """
     Returns correct model object given arguments and commands
     """
+    from swe_agent.swe_agent.model.anthropic_swe_agent_model import AnthropicModel
+    from swe_agent.swe_agent.model.human_swe_agent_model import HumanModel
+    from swe_agent.swe_agent.model.human_thought_swe_agent_model import HumanThoughtModel
+    from swe_agent.swe_agent.model.ollama_swe_agent_model import OllamaModel
+    from swe_agent.swe_agent.model.open_ai_swe_agent_model import OpenAIModel
+    from swe_agent.swe_agent.model.replay_swe_agent_model import ReplayModel
+
     if commands is None:
         commands = []
 
