@@ -4,7 +4,7 @@ import subprocess
 import yaml
 
 from argparse import ArgumentParser
-from sweagent.environment.utils import is_from_github_url
+from swe_agent.environment.utils import is_from_github_url
 from typing import Any, Dict, List
 
 

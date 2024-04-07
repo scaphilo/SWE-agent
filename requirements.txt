@@ -1,6 +1,7 @@
  anthropic
  config
  datasets
+ docker
  gymnasium
  numpy
  openai>=1.0

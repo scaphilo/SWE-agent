@@ -1,76 +1,14 @@
 import re
+from pathlib import Path
+from typing import List
+
 import yaml
 
-from abc import abstractmethod
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Dict, List, Optional
-from simple_parsing.helpers import FrozenSerializable
+from swe_agent.swe_agent.command.command_parser import CommandParser
+from swe_agent.swe_agent.command.commands import Command
 
 
-@dataclass(frozen=True)
-class AssistantMetadata(FrozenSerializable):
-    """Pass observations to the assistant, and get back a response."""
-    system_template: Optional[str] = None
-    instance_template: Optional[str] = None
-
-
-# TODO: first can be used for two-stage actions
-# TODO: eventually might control high-level control flow
-@dataclass(frozen=True)
-class ControlMetadata(FrozenSerializable):
-    """TODO: should be able to control high-level control flow after calling this command"""
-    next_step_template: Optional[str] = None
-    next_step_action_template: Optional[str] = None
-    
-
-@dataclass(frozen=True)
-class Command(FrozenSerializable):
-    code: str
-    name: str
-    docstring: Optional[str] = None
-    end_name: Optional[str] = None  # if there is an end_name, then it is a multi-line command
-    arguments: Optional[Dict] = None
-    signature: Optional[str] = None
-
-
-class ParseCommandMeta(type):
-    _registry = {}
-
-    def __new__(cls, name, bases, attrs):
-        new_cls = super().__new__(cls, name, bases, attrs)
-        if name != "ParseCommand":
-            cls._registry[name] = new_cls
-        return new_cls
-
-
-@dataclass
-class ParseCommand(metaclass=ParseCommandMeta):
-    @classmethod
-    def get(cls, name):
-        try:
-            return cls._registry[name]()
-        except KeyError:
-            raise ValueError(f"Command parser ({name}) not found.")
-
-    @abstractmethod
-    def parse_command_file(self, path: str) -> List[Command]:
-        """
-        Define how to parse a file into a list of commands.
-        """
-        raise NotImplementedError
-    
-    @abstractmethod
-    def generate_command_docs(self, commands: List[Command], subroutine_types, **kwargs) -> str:
-        """
-        Generate a string of documentation for the given commands and subroutine types.
-        """
-        raise NotImplementedError
-
-
-# DEFINE NEW COMMAND PARSER FUNCTIONS BELOW THIS LINE
-
-class ParseCommandBash(ParseCommand):
+class BashCommandParser(CommandParser):
     def parse_command_file(self, path: str) -> List[Command]:
         print('Parsing command file:', path)
         contents = open(path, "r").read()
@@ -95,7 +33,7 @@ class ParseCommandBash(ParseCommand):
                 ))
         else:
             return commands
-    
+
     def parse_bash_functions(self, path, contents) -> List[Command]:
         """
         Simple logic for parsing a bash file and segmenting it into functions.
@@ -145,7 +83,7 @@ class ParseCommandBash(ParseCommand):
                 commands.append(command)
                 docs = []
         return commands
-    
+
     def parse_script(self, path, contents) -> List[Command]:
         pattern = re.compile(r'^#\s*@yaml\s*\n^#.*(?:\n#.*)*', re.MULTILINE)
         matches = pattern.findall(contents)
@@ -192,55 +130,4 @@ class ParseCommandBash(ParseCommand):
         for subroutine in subroutine_types:
             if subroutine.docstring is not None:
                 docs += f"{subroutine.signature or subroutine.name} - {subroutine.docstring.format(**kwargs)}\n"
-        return docs
-
-
-class ParseCommandDetailed(ParseCommandBash):
-    """
-    # command_name:
-    #   "docstring"
-    #   signature: "signature"
-    #   arguments:
-    #     arg1 (type) [required]: "description"
-    #     arg2 (type) [optional]: "description"
-    """
-    def get_signature(cmd):
-        signature = cmd.name
-        if "arguments" in cmd.__dict__ and cmd.arguments is not None:
-                if cmd.end_name is None:
-                    for param, settings in cmd.arguments.items():
-                        if settings["required"]:
-                            signature += f" <{param}>"
-                        else:
-                            signature += f" [<{param}>]"
-                else:
-                    for param, settings in list(cmd.arguments.items())[:-1]:
-                        if settings["required"]:
-                            signature += f" <{param}>"
-                        else:
-                            signature += f" [<{param}>]"
-                    signature += f"\n{list(cmd.arguments[-1].keys())[0]}\n{cmd.end_name}"
-        return signature
-
-    def generate_command_docs(
-            self,
-            commands: List[Command],
-            subroutine_types,
-            **kwargs,
-            ) -> str:
-        docs = ""
-        for cmd in commands + subroutine_types:
-            docs += f"{cmd.name}:\n"
-            if cmd.docstring is not None:
-                docs += f"  docstring: {cmd.docstring}\n"
-            if cmd.signature is not None:
-                docs += f"  signature: {cmd.signature}\n"
-            else:
-                docs += f"  signature: {self.get_signature(cmd)}\n"
-            if "arguments" in cmd.__dict__ and cmd.arguments is not None:
-                docs += "  arguments:\n"
-                for param, settings in cmd.arguments.items():
-                    req_string = "required" if settings["required"] else "optional"
-                    docs += f"    - {param} ({settings['type']}) [{req_string}]: {settings['description']}\n"
-            docs += "\n"
         return docs

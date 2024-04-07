@@ -12,18 +12,18 @@ from pathlib import Path
 from rich.logging import RichHandler
 from simple_parsing import parse
 from simple_parsing.helpers import FrozenSerializable, FlattenedAccess
-from sweagent import (
+from swe_agent import (
     Agent,
     AgentArguments,
     EnvironmentArguments,
     ModelArguments,
-    SWEEnv,
+    EnvironmentManagement,
     get_data_path_name,
 )
 from swebench import KEY_INSTANCE_ID, KEY_MODEL, KEY_PREDICTION
 from unidiff import PatchSet
 
-from sweagent.environment.utils import InvalidGithubURL, get_associated_commit_urls, get_gh_issue_data, parse_gh_issue_url
+from swe_agent.environment.utils import InvalidGithubURL, get_associated_commit_urls, get_gh_issue_data, parse_gh_issue_url
 
 handler = RichHandler(show_time=False, show_path=False)
 handler.setLevel(logging.DEBUG)
@@ -87,7 +87,7 @@ def main(args: ScriptArguments):
     logger.info(f"📙 Arguments: {args.dumps_yaml()}")
     agent = Agent("primary", args.agent)
 
-    env = SWEEnv(args.environment)
+    env = EnvironmentManagement(args.environment)
 
     traj_dir = Path("trajectories") / Path(getuser()) / args.run_name
     os.makedirs(traj_dir, exist_ok=True)
