@@ -10,8 +10,8 @@ from swe_agent.swe_agent.agent.agent_config import AgentConfig
 
 @dataclass(frozen=True)
 class AgentArguments(FlattenedAccess, FrozenSerializable):
-    model: Optional['ModelArguments'] = None
-    config_file: Optional['Path'] = None
+    model: 'ModelArguments' = None
+    config_file: Optional[Path] = None
     config: Optional[AgentConfig] = field(default=None, cmd=False)
 
     def __post_init__(self):
