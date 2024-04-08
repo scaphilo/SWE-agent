@@ -255,7 +255,7 @@ if __name__ == "__main__":
         per_instance_cost_limit=3.0,
         temperature=0.0,
         top_p=0.95,
-    ),
+    )
     config_file = Path("config/default.yaml")
     environment_arguments = EnvironmentArguments(
         image_name="sweagent/swe-agent:latest",
