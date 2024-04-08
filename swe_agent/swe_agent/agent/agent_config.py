@@ -7,6 +7,8 @@ from simple_parsing.helpers import FrozenSerializable
 from swe_agent.swe_agent.agent.agent_subroutine import AgentSubroutine
 from swe_agent.swe_agent.command.commands import Command
 from swe_agent.swe_agent.command.command_parser import CommandParser
+from swe_agent.swe_agent.command.detailed_bash_command_parser import DetailedBashCommandParser
+from swe_agent.swe_agent.command.bash_command_parser import BashCommandParser
 from swe_agent.swe_agent.processor.history_processor import HistoryProcessor
 from swe_agent.swe_agent.parsing import ParseFunction
 
@@ -21,7 +23,7 @@ class AgentConfig(FrozenSerializable):
     demonstration_template: Optional[str] = None
     demonstrations: list[str] = field(default_factory=list)
     put_demos_in_history: bool = False  # if True, add demonstration to history instead of as a single message
-    format_error_template: str = None # defaults to format_error_template in ParseFunction
+    format_error_template: str = None  # defaults to format_error_template in ParseFunction
     command_files: list[str] = field(default_factory=list)
     env_variables: dict[str, str] = field(default_factory=dict)
     util_functions: list[str] = field(default_factory=list)

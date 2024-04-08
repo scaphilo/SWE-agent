@@ -256,20 +256,23 @@ if __name__ == "__main__":
         temperature=0.0,
         top_p=0.95,
     ),
+    config_file = Path("config/default.yaml")
+    environment_arguments = EnvironmentArguments(
+        image_name="sweagent/swe-agent:latest",
+        data_path="princeton-nlp/SWE-bench_Lite",
+        split="dev",
+        verbose=True,
+        install_environment=True,
+    )
+    agent_arguments = AgentArguments(
+        model=model,
+        config_file=config_file,
+    )
     defaults = ScriptArguments(
         suffix="",
-        environment=EnvironmentArguments(
-            image_name="sweagent/swe-agent:latest",
-            data_path="princeton-nlp/SWE-bench_Lite",
-            split="dev",
-            verbose=True,
-            install_environment=True,
-        ),
+        environment=environment_arguments,
         skip_existing=True,
-        agent=AgentArguments(
-            model= model,
-            config_file="config/default.yaml",
-        ),
+        agent=agent_arguments,
         actions=ActionsArguments(open_pr=False, skip_if_commits_reference_issue=True),
     )
 
