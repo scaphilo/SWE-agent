@@ -258,7 +258,7 @@ if __name__ == "__main__":
     )
     config_file = Path("config/default.yaml")
     environment_arguments = EnvironmentArguments(
-        image_name="sweagent/swe-agent:latest",
+        image_name="ghcr.io/scaphilo/swe-agent-environment:main",
         data_path="princeton-nlp/SWE-bench_Lite",
         split="dev",
         verbose=True,

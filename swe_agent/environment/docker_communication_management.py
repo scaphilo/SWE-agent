@@ -11,7 +11,7 @@ from swe_agent.environment.utils import read_with_timeout, get_container
 
 
 class DockerCommunicationManagement:
-    def __init__(self, container_name, image_name, logger):
+    def __init__(self, image_name, container_name, logger):
         self.logger = logger
         self.container_name = container_name
         self.image_name = image_name

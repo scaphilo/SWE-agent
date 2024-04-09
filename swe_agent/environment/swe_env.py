@@ -59,16 +59,16 @@ class EnvironmentManagement(gym.Env):
         self.timeout = args.timeout
         self.idx = 0
         self.clean_multi_line_functions = lambda x: x
-        self.docker_communication = DockerCommunicationManagement(self.image_name,
-                                                                  self.container_name,
-                                                                  self.logger)
-        self.git_communication_management = GitCommunicationManagement(self.data_path,
-                                                                       self.is_github_url,
-                                                                       self.idx,
-                                                                       self.split,
-                                                                       self.logger,
-                                                                       self.no_mirror,
-                                                                       self.docker_communication,
+        self.docker_communication = DockerCommunicationManagement(image_name=self.image_name,
+                                                                  container_name=self.container_name,
+                                                                  logger=self.logger)
+        self.git_communication_management = GitCommunicationManagement(data_path=self.data_path,
+                                                                       is_github_url=self.is_github_url,
+                                                                       idx=self.idx,
+                                                                       split=self.split,
+                                                                       logger=self.logger,
+                                                                       no_mirror=self.no_mirror,
+                                                                       docker_communication=self.docker_communication,
                                                                        timeout=LONG_TIMEOUT)
 
     def get_git_communication_management(self):
