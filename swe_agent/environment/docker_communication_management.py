@@ -17,6 +17,7 @@ class DockerCommunicationManagement:
         self.image_name = image_name
         self.container = None
         self.container_obj = None
+        self.persistent = container_name is not None
         self.reset_container()
         self.return_code = None
 
@@ -97,7 +98,8 @@ class DockerCommunicationManagement:
         return logs
 
     def reset_container(self) -> None:
-        self.close()
+        if self.container is not None:
+            self.close()
         self.container = None
         self.container_obj = None
         if hasattr(self, "container"):
@@ -124,9 +126,9 @@ class DockerCommunicationManagement:
             image_name_sanitized = self.image_name.replace("/", "-")
             image_name_sanitized = image_name_sanitized.replace(":", "-")
             self.container_name = f"{image_name_sanitized}-{hash_object.hexdigest()[:10]}"
-        self.container, self.parent_pids = get_container(
-            self.container_name, self.image_name, persistent=self.persistent
-        )
+        self.container, self.parent_pids = get_container(container_name=self.container_name,
+                                                         image_name=self.image_name,
+                                                         persistent=self.persistent)
         try:
             client = docker.from_env()
         except docker.errors.DockerException as e:

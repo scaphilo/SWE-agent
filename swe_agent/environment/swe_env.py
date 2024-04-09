@@ -50,7 +50,6 @@ class EnvironmentManagement(gym.Env):
         logger.addHandler(handler)
         logger.propagate = False
         self.logger = logger
-        self.persistent = args.container_name is not None
         if not args.verbose:
             self.logger.disabled = True
 

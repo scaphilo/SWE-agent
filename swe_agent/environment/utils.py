@@ -256,21 +256,21 @@ def _get_persistent_container(ctr_name: str, image_name: str, persistent: bool =
     return container, set(map(str, [bash_pid, 1, ]))
 
 
-def get_container(ctr_name: str, image_name: str, persistent: bool = False) -> subprocess.Popen:
+def get_container(container_name: str, image_name: str, persistent: bool = False) -> subprocess.Popen:
     """
     Get a container object for a given container name and image name
 
     Arguments:
-        ctr_name (str): Name of container
+        container_name (str): Name of container
         image_name (str): Name of image
         persistent (bool): Whether to use a persistent container or not
     Returns:
         Container object
     """
     if persistent:
-        return _get_persistent_container(ctr_name, image_name)
+        return _get_persistent_container(container_name, image_name)
     else:
-        return _get_non_persistent_container(ctr_name, image_name)
+        return _get_non_persistent_container(container_name, image_name)
 
 
 def get_commit(api: GhApi, owner: str, repo: str, base_commit: str = None):

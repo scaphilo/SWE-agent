@@ -88,16 +88,16 @@ def main(args: ScriptArguments):
 
     env = EnvironmentManagement(args.environment)
 
-    traj_dir = Path("trajectories") / Path(getuser()) / args.run_name
-    os.makedirs(traj_dir, exist_ok=True)
+    trajectories_path = Path("trajectories") / Path(getuser()) / args.run_name
+    os.makedirs(trajectories_path, exist_ok=True)
 
-    save_arguments(traj_dir, args)
+    save_arguments(trajectories_path, args)
 
     for index in range(len(env.get_git_communication_management().get_data())):
         try:
             # Reset environment
             instance_id = env.get_git_communication_management().get_data()[index]["instance_id"]
-            if should_skip(args, traj_dir, instance_id):
+            if should_skip(args, trajectories_path, instance_id):
                 continue
             logger.info("▶️  Beginning task " + str(index))
 
@@ -133,10 +133,10 @@ def main(args: ScriptArguments):
                 setup_args=setup_args,
                 env=env,
                 observation=observation,
-                traj_dir=traj_dir,
+                traj_dir=trajectories_path,
                 return_type="info_trajectory",
             )
-            save_predictions(traj_dir, instance_id, info)
+            save_predictions(trajectories_path, instance_id, info)
             if args.actions.open_pr and should_open_pr(args, info, token=env.get_git_communication_management().get_token()):
                 env.get_git_communication_management().open_pull_request(args.actions, info, trajectory)
 
