@@ -13,7 +13,8 @@ from swe_agent.swe_agent.model.models import (
 from swe_agent.swe_agent.model.model_apistats import APIStats
 from swe_agent.swe_agent.parsing import ParseFunction, FormatError
 from swe_agent.environment.utils import LOGGER_NAME
-from swe_agent.environment.swe_env import EnvironmentManagement
+from swe_agent.environment.swe_env import DockerCommunicationManagement
+from swe_agent.environment.swe_env import GitCommunicationManagement
 from tenacity import RetryError
 from typing import Optional, Tuple
 
@@ -98,10 +99,10 @@ class Agent:
         """Return the history of the agent since the last reset."""
         return self.config.history_processor([entry for entry in self.history if entry["agent"] == self.name])
 
-    def save_trajectory(self, trajectory, traj_dir, env, info):
-        log_path = traj_dir / (env.record['instance_id'] + ".traj")
+    def save_trajectory(self, trajectory, traj_dir, git_comm_env: GitCommunicationManagement, docker_env: DockerCommunicationManagement, info):
+        log_path = traj_dir / (git_comm_env.record['instance_id'] + ".traj")
         log_dict = {
-            "environment": env.name,
+            "environment": docker_env.name,
             "trajectory": trajectory,
             "history": self.history,
             "info": info,
@@ -380,7 +381,7 @@ class Agent:
     def init_environment_vars(self, env):
         self.set_environment_vars(env, self.config.env_variables)
 
-    def set_environment_vars(self, env, env_variables):
+    def set_environment_vars(self, env: DockerCommunicationManagement, env_variables):
         commands_to_execute = (
             [self.config.state_command.code] +
             # [code for code in self.config.util_functions] +
@@ -460,7 +461,8 @@ class Agent:
     def run(
             self,
             setup_args,
-            env: EnvironmentManagement,
+            docker_env: DockerCommunicationManagement,
+            git_comm_env: GitCommunicationManagement,
             observation: str = None,
             traj_dir: Optional[Path] = None,
             return_type: Optional[str] = "info",
@@ -472,10 +474,10 @@ class Agent:
         """
         done = False
 
-        if env.container_obj.id != self.last_container_id:
-            logger.info(f"Initializing agent settings for container {env.container_obj.id}")
-            self.init_environment_vars(env)
-            self.last_container_id = env.container_obj.id
+        if docker_env.get_container_obj().id != self.last_container_id:
+            logger.info(f"Initializing agent settings for container {docker_env.get_container_obj().id}")
+            self.init_environment_vars(docker_env)
+            self.last_container_id = docker_env.container_obj.id
         # Re-initialize primary
         self.setup(setup_args, init_model_stats)
 
@@ -483,16 +485,13 @@ class Agent:
         trajectory = []
         info = {}
         while not done:
-            state = env.communicate(self.state_command) if self.state_command else None
-            thought, action, output = self.forward(
-                observation,
-                env.get_available_actions(),
-                state)
+            state = docker_env.communicate(self.state_command) if self.state_command else None
+            thought, action, output = self.forward(observation, docker_env.get_available_actions(), state)
             observations = list()
             run_action = self._guard_multiline_input(action)
             for sub_action in self.split_actions(run_action):
                 if sub_action['agent'] == self.name or sub_action['cmd_name'] == self.config.submit_command:
-                    obs, _, done, info = env.step(sub_action['action'])
+                    obs, _, done, info = docker_env.step(sub_action['action'])
                     observations.append(obs)
                     if sub_action['cmd_name'] == self.config.submit_command:
                         done = True
@@ -500,7 +499,7 @@ class Agent:
                         break
                 else:
                     agent_name = sub_action['agent']
-                    sub_agent_output = self.call_subroutine(agent_name, sub_action, env)
+                    sub_agent_output = self.call_subroutine(agent_name, sub_action, docker_env)
                     observations.append(sub_agent_output)
 
             observation = '\n'.join([obs for obs in observations if obs is not None])
@@ -516,7 +515,7 @@ class Agent:
             )
             info['model_stats'] = self.model.stats.to_dict()
             if traj_dir:
-                self.save_trajectory(trajectory, traj_dir, env, info)
+                self.save_trajectory(trajectory, traj_dir, docker_env=docker_env, git_comm_env=git_comm_env, info=info)
         if return_type == "info":
             return info
         if return_type == "info_trajectory":

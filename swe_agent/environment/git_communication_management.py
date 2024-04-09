@@ -20,19 +20,18 @@ PATH_TO_ENV_YML = "/root/environment.yml"
 
 
 class GitCommunicationManagement:
-    def __init__(self, data_path, is_github_url, split, idx, logger, no_mirror, docker_communication, timeout):
+    def __init__(self, data_path, is_github_url, split, idx, logger, install_python_environment,
+                 no_mirror, docker_communication, timeout):
         self.docker_communication = docker_communication
         self.idx = idx
         self.split = split
         self.no_mirror = no_mirror
+        self.install_python_environment = install_python_environment
         self.logger = logger
         self.data_path = data_path
         self.base_commit = None
         self.is_github_url = is_github_url
         self.timeout = timeout
-        self.logger.info(f"💽 Loaded dataset from {self.data_path}")
-
-        # Set GitHub Token
         self.token = os.environ.get("GITHUB_TOKEN", None)
         # Get commit hash
         try:
@@ -51,6 +50,7 @@ class GitCommunicationManagement:
             self.token = self.cfg.get("GITHUB_TOKEN", "git")
         self.data = get_instances(self.data_path, self.base_commit, self.split, token=self.token)
         self.record = self.data[idx]
+        self.logger.info(f"💽 Loaded dataset from {self.data_path}")
 
     def get_data(self):
         return self.data
@@ -228,7 +228,7 @@ class GitCommunicationManagement:
             )
 
         # Call install environment helper function if specified
-        if self.install_env():
+        if self.install_python_environment:
             if self.is_github_url:
                 self.logger.warning((
                     "install_environment is set to True, but the data path is a GitHub URL. "
@@ -367,30 +367,3 @@ class GitCommunicationManagement:
                     post_install_cmd,
                     error_msg="Post-install commands failed to execute successfully",
                 )
-
-    def add_commands(self, commands: list[dict]) -> None:
-        """
-        Adds custom commands to container
-        """
-        for command in commands:
-            name = command["name"]
-            contents = command["contents"]
-            copy_file_to_container(self.docker_communication.get_container_obj(), contents, f"/root/commands/{name}")
-            if command['type'] == "source_file":
-                self.docker_communication.communicate_with_handling(
-                    f"source /root/commands/{name}",
-                    error_msg=(
-                        f"Failed to source {name}. If you meant to make a script,"
-                        " start the file with a shebang (e.g. #!/usr/bin/env python)."
-                    )
-                )
-            elif command['type'] == "script":
-                self.docker_communication.communicate_with_handling(
-                    f"chmod +x /root/commands/{name}",
-                    error_msg=f"Failed to chmod {name}",
-                )
-            elif command['type'] == "utility":
-                # nothing to do for utility scripts
-                pass
-            else:
-                raise ValueError(f"Invalid command type: {command['type']}")

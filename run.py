@@ -131,7 +131,8 @@ def main(args: ScriptArguments):
             }
             info, trajectory = agent.run(
                 setup_args=setup_args,
-                env=env,
+                docker_env=env.get_docker_communication(),
+                git_comm_env=env.get_git_communication_management(),
                 observation=observation,
                 traj_dir=trajectories_path,
                 return_type="info_trajectory",
@@ -250,7 +251,7 @@ def save_predictions(traj_dir, instance_id, info):
 
 if __name__ == "__main__":
     model = ModelArguments(
-        model_name="gpt4",
+        model_name="gpt-3.5-turbo-1106",
         total_cost_limit=0.0,
         per_instance_cost_limit=3.0,
         temperature=0.0,
@@ -262,7 +263,7 @@ if __name__ == "__main__":
         data_path="princeton-nlp/SWE-bench_Lite",
         split="dev",
         verbose=True,
-        install_environment=True,
+        install_environment=False,
     )
     agent_arguments = AgentArguments(
         model=model,

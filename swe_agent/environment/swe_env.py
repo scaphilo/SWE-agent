@@ -42,7 +42,7 @@ class EnvironmentManagement(gym.Env):
         self.no_mirror = args.no_mirror
         self.is_github_url = is_from_github_url(args.data_path)
         self.container_name = args.container_name
-        self.install_environment = args.install_environment
+        self.install_python_environment = args.install_environment
         handler = RichHandler(show_time=False, show_path=False)
         handler.setLevel(logging.DEBUG)
         logger = logging.getLogger(LOGGER_NAME)
@@ -67,6 +67,7 @@ class EnvironmentManagement(gym.Env):
                                                                        idx=self.idx,
                                                                        split=self.split,
                                                                        logger=self.logger,
+                                                                       install_python_environment=self.install_python_environment,
                                                                        no_mirror=self.no_mirror,
                                                                        docker_communication=self.docker_communication,
                                                                        timeout=LONG_TIMEOUT)
@@ -78,7 +79,7 @@ class EnvironmentManagement(gym.Env):
         return self.docker_communication
 
     def reset(self, index: int = None, apply_test_patch: bool = False):
-        self.git_communication_management.reset(index, apply_test_patch)
+        return self.git_communication_management.reset(index, apply_test_patch)
 
     def step(self, action: str) -> Tuple[str, int, bool, dict]:
         """
@@ -157,12 +158,6 @@ class EnvironmentManagement(gym.Env):
             observation = submission if submission.strip() != "" else None
             return observation, 0, True, info
         return observation, 0, False, info
-
-    def get_available_actions(self) -> list[str]:
-        """
-        Returns list of available actions in current environment state
-        """
-        return []
 
     def get_submission(self, action, output: str) -> str:
         """
