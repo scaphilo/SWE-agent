@@ -15,9 +15,8 @@ import traceback
 from datasets import load_dataset, load_from_disk
 from ghapi.all import GhApi
 from io import BytesIO
-from pathlib import Path
 from subprocess import PIPE, STDOUT
-from typing import Any, List, Tuple, Dict
+from typing import List, Tuple, Dict
 
 LOGGER_NAME = "intercode"
 START_UP_DELAY = 5
@@ -25,16 +24,6 @@ TIMEOUT_DURATION = 25
 GITHUB_ISSUE_URL_PATTERN = re.compile(r'github\.com\/(.*?)\/(.*?)\/issues\/(\d+)')
 
 logger = logging.getLogger(LOGGER_NAME)
-
-
-def get_data_path_name(data_path: str):
-    # if data_path is a file, return the file stem
-    # elif it's a github url, return the owner__repo_name
-    match = GITHUB_ISSUE_URL_PATTERN.search(data_path)
-    if match:
-        owner, repo, issue_number = match.groups()
-        return f"{owner}__{repo}"
-    return Path(data_path).stem
 
 
 def is_from_github_url(data_path: str):

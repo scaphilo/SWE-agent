@@ -2,40 +2,26 @@ import gymnasium as gym
 import logging
 import re
 
-from dataclasses import dataclass
 from rich.logging import RichHandler
-from simple_parsing.helpers import FrozenSerializable
 
-from swe_agent.environment.docker_communication_management import DockerCommunicationManagement
-from swe_agent.environment.git_communication_management import GitCommunicationManagement
-from swe_agent.environment.utils import (
+from swe_agent.development_environment.development_environment_arguments import DevelopmentEnvironmentArguments
+from swe_agent.development_environment.docker_communication_management import DockerCommunicationManagement
+from swe_agent.development_environment.git_communication_management import GitCommunicationManagement
+from swe_agent.development_environment.utils import (
     is_from_github_url,
     LOGGER_NAME,
 )
-from typing import Optional, Tuple
+from typing import Tuple
 
 LONG_TIMEOUT = 500
 
 
-@dataclass(frozen=True)
-class EnvironmentArguments(FrozenSerializable):
-    data_path: str
-    image_name: str
-    split: str = "dev"
-    base_commit: Optional[str] = None  # used only with data_path as url
-    container_name: Optional[str] = None
-    install_environment: bool = True
-    timeout: int = 35
-    verbose: bool = False
-    no_mirror: bool = False
-
-
-class EnvironmentManagement(gym.Env):
+class DevelopmentEnvironment(gym.Env):
     """Gym environment for SWE-bench. This class should handle all communication with the docker container."""
 
     name = "swe_main"
 
-    def __init__(self, args: EnvironmentArguments):
+    def __init__(self, args: DevelopmentEnvironmentArguments):
         super().__init__()
         self.split = args.split
         self.data_path = args.data_path

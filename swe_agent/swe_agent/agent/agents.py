@@ -12,10 +12,10 @@ from swe_agent.swe_agent.model.models import (
 )
 from swe_agent.swe_agent.model.model_apistats import APIStats
 from swe_agent.swe_agent.parsing import ParseFunction, FormatError
-from swe_agent.environment.utils import LOGGER_NAME
-from swe_agent.environment.git_communication_management import GitCommunicationManagement
-from swe_agent.environment.docker_communication_management import  DockerCommunicationManagement
-from swe_agent.environment.swe_env import EnvironmentManagement
+from swe_agent.development_environment.utils import LOGGER_NAME
+from swe_agent.development_environment.git_communication_management import GitCommunicationManagement
+from swe_agent.development_environment.docker_communication_management import  DockerCommunicationManagement
+from swe_agent.development_environment.development_environment import DevelopmentEnvironment
 from tenacity import RetryError
 from typing import Optional, Tuple
 
@@ -23,12 +23,14 @@ logger = logging.getLogger(LOGGER_NAME)
 
 
 class Agent:
-    """Agent handles the behaviour of the model and how it interacts with the environment."""
+    """Agent handles the behaviour of the large language model
+    and how it interacts with the development environment."""
 
-    def __init__(self, name: str, args: AgentArguments):
+    def __init__(self, name: str, agent_arguments: AgentArguments):
         self.name = name
-        self.model = get_model(args.model, args.config._commands + args.config.subroutine_types)
-        self.config = args.config
+        self.config = agent_arguments.config
+        self.model = get_model(agent_arguments.model,
+                               self.config._commands + self.config.subroutine_types)
         self.system_args = {
             "command_docs": self.config.command_docs,
             **self.config.env_variables,
@@ -101,7 +103,7 @@ class Agent:
         return self.config.history_processor([entry for entry in self.history if entry["agent"] == self.name])
 
     def save_trajectory(self, trajectory, traj_dir,
-                        env: EnvironmentManagement,
+                        env: DevelopmentEnvironment,
                         git_comm_env: GitCommunicationManagement, info):
         log_path = traj_dir / (git_comm_env.record['instance_id'] + ".traj")
         log_dict = {
@@ -464,7 +466,7 @@ class Agent:
     def run(
             self,
             setup_args,
-            env: EnvironmentManagement,
+            env: DevelopmentEnvironment,
             observation: str = None,
             traj_dir: Optional[Path] = None,
             return_type: Optional[str] = "info",

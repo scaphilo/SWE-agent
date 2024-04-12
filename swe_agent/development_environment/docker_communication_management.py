@@ -7,7 +7,7 @@ from typing import Tuple
 
 import docker
 
-from swe_agent.environment.utils import read_with_timeout, get_container, copy_file_to_container
+from swe_agent.development_environment.utils import read_with_timeout, get_container, copy_file_to_container
 
 
 class DockerCommunicationManagement:

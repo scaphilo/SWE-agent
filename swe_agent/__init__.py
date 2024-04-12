@@ -4,11 +4,9 @@ from swe_agent.swe_agent.agent.agent_arguments import AgentArguments
 
 from swe_agent.swe_agent.model.model_arguments import ModelArguments
 
-from swe_agent.environment.swe_env import (
-    EnvironmentArguments,
-    EnvironmentManagement,
+from swe_agent.development_environment.development_environment import (
+    DevelopmentEnvironment,
 )
+from swe_agent.development_environment.development_environment_arguments import DevelopmentEnvironmentArguments
 
-from swe_agent.environment.utils import (
-    get_data_path_name,
-)
+from swe_agent.application.application_arguments import get_data_path_name

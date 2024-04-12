@@ -7,7 +7,7 @@ import config
 from ghapi.core import GhApi
 from git import Repo
 
-from swe_agent.environment.utils import get_instances, get_gh_issue_data, parse_gh_issue_url, parse_gh_repo_url, \
+from swe_agent.development_environment.utils import get_instances, get_gh_issue_data, parse_gh_issue_url, parse_gh_repo_url, \
     format_trajectory_markdown, copy_file_to_container
 
 from swebench import (

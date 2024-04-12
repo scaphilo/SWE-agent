@@ -6,23 +6,23 @@ import traceback
 from typing import Any, Dict
 import yaml
 
-from dataclasses import dataclass
 from getpass import getuser
 from pathlib import Path
 from rich.logging import RichHandler
 from simple_parsing import parse
-from simple_parsing.helpers import FrozenSerializable, FlattenedAccess
+
+from swe_agent.application.action_arguments import ActionsArguments
+from swe_agent.application.application_arguments import ApplicationArguments
 from swe_agent.swe_agent.agent.agent_arguments import AgentArguments
 from swe_agent.swe_agent.agent.agents import Agent
 from swe_agent.swe_agent.model.model_arguments import ModelArguments
-from swe_agent.environment.swe_env import EnvironmentArguments
-from swe_agent.environment.utils import get_data_path_name
-from swe_agent.environment.swe_env import EnvironmentManagement
+from swe_agent import DevelopmentEnvironmentArguments
+from swe_agent.development_environment.development_environment import DevelopmentEnvironment
 
 from swebench import KEY_INSTANCE_ID, KEY_MODEL, KEY_PREDICTION
 from unidiff import PatchSet
 
-from swe_agent.environment.utils import InvalidGithubURL, get_associated_commit_urls, get_gh_issue_data, parse_gh_issue_url
+from swe_agent.development_environment.utils import InvalidGithubURL, get_associated_commit_urls, get_gh_issue_data, parse_gh_issue_url
 
 handler = RichHandler(show_time=False, show_path=False)
 handler.setLevel(logging.DEBUG)
@@ -33,95 +33,45 @@ logger.propagate = False
 logging.getLogger("simple_parsing").setLevel(logging.WARNING)
 
 
-@dataclass(frozen=True)
-class ActionsArguments(FlattenedAccess, FrozenSerializable):
-    """Run real-life actions (opening PRs, etc.) if we can solve the issue."""
-    open_pr: bool = False  # Open a PR with the patch if we can solve the issue
-    # Skip action if there are already commits claiming to fix the issue. Please only
-    # set this to False if you are sure the commits are not fixes or if this is your
-    # own repository!
-    skip_if_commits_reference_issue: bool = True  
-    # For PRs: If you want to push the branch to a fork (e.g., because you lack
-    # permissions to push to the main repo), set this to the URL of the fork.
-    push_gh_repo_url: str = ""
+def main(application_arguments: ApplicationArguments):
+    logger.info(f"📙 Arguments: {application_arguments.dumps_yaml()}")
+    agent = Agent(name="primary", agent_arguments=application_arguments.agent)
+    development_environment = DevelopmentEnvironment(application_arguments.environment)
 
-    def __post_init__(self):
-        if not self.skip_if_commits_reference_issue and self.push_gh_repo_url:
-            raise ValueError(
-                "Overriding `skip_if_commits_reference_issue` when you are "
-                "pushing to a fork is not supported. You should manually "
-                "apply the patch to the forked repository."
-            )
-
-@dataclass(frozen=True)
-class ScriptArguments(FlattenedAccess, FrozenSerializable):
-    environment: EnvironmentArguments
-    agent: 'AgentArguments'
-    actions: ActionsArguments
-    instance_filter: str = ".*"  # Only run instances that completely match this regex
-    skip_existing: bool = True  # Skip instances with existing trajectories
-    suffix: str = ""
-
-    @property
-    def run_name(self):
-        """Generate a unique name for this run based on the arguments."""
-        model_name = args.agent.model.model_name.replace(":", "-")
-        data_stem = get_data_path_name(args.environment.data_path)
-        config_stem = Path(args.agent.config_file).stem
-
-        temp = args.agent.model.temperature
-        top_p = args.agent.model.top_p
-
-        per_instance_cost_limit = args.agent.model.per_instance_cost_limit
-        install_env = args.environment.install_environment
-
-        return (
-            f"{model_name}__{data_stem}__{config_stem}__t-{temp:.2f}__p-{top_p:.2f}"
-            + f"__c-{per_instance_cost_limit:.2f}__install-{int(install_env)}"
-            + (f"__{self.suffix}" if self.suffix else "")
-        )
-
-
-def main(args: ScriptArguments):
-    logger.info(f"📙 Arguments: {args.dumps_yaml()}")
-    agent = Agent("primary", args.agent)
-
-    env = EnvironmentManagement(args.environment)
-
-    trajectories_path = Path("trajectories") / Path(getuser()) / args.run_name
+    trajectories_path = Path("trajectories") / Path(getuser()) / application_arguments.run_name
     os.makedirs(trajectories_path, exist_ok=True)
 
-    save_arguments(trajectories_path, args)
+    save_arguments(trajectories_path, application_arguments)
 
-    for index in range(len(env.get_git_communication_management().get_data())):
+    for index in range(len(development_environment.get_git_communication_management().get_data())):
         try:
             # Reset environment
-            instance_id = env.get_git_communication_management().get_data()[index]["instance_id"]
-            if should_skip(args, trajectories_path, instance_id):
+            instance_id = development_environment.get_git_communication_management().get_data()[index]["instance_id"]
+            if should_skip(application_arguments, trajectories_path, instance_id):
                 continue
             logger.info("▶️  Beginning task " + str(index))
 
-            observation, info = env.reset(index)
+            observation, info = development_environment.reset(index)
             if info is None:
                 continue
 
             # Get info, patch information
-            issue = env.get_git_communication_management().get_query()
+            issue = development_environment.get_git_communication_management().get_query()
             files = []
-            if "patch" in env.get_git_communication_management().get_record():
+            if "patch" in development_environment.get_git_communication_management().get_record():
                 files = "\n".join(
-                    [f"- {x.path}" for x in PatchSet(env.get_git_communication_management().get_record()["patch"]).modified_files]
+                    [f"- {x.path}" for x in PatchSet(development_environment.get_git_communication_management().get_record()["patch"]).modified_files]
                 )
             # Get test files, F2P tests information
             test_files = []
-            if "test_patch" in env.get_git_communication_management().get_record():
-                test_patch_obj = PatchSet(env.get_git_communication_management().get_record()["test_patch"])
+            if "test_patch" in development_environment.get_git_communication_management().get_record():
+                test_patch_obj = PatchSet(development_environment.get_git_communication_management().get_record()["test_patch"])
                 test_files = "\n".join(
                     [f"- {x.path}" for x in test_patch_obj.modified_files + test_patch_obj.added_files]
                 )
             tests = ""
-            if "FAIL_TO_PASS" in env.get_git_communication_management().get_record():
-                tests = "\n".join([f"- {x}" for x in env.get_git_communication_management().get_record()["FAIL_TO_PASS"]])
+            if "FAIL_TO_PASS" in development_environment.get_git_communication_management().get_record():
+                tests = "\n".join([f"- {x}" for x in development_environment.get_git_communication_management().get_record()["FAIL_TO_PASS"]])
 
             setup_args = {
                 "issue": issue,
@@ -131,23 +81,23 @@ def main(args: ScriptArguments):
             }
             info, trajectory = agent.run(
                 setup_args=setup_args,
-                env=env,
+                env=development_environment,
                 observation=observation,
                 traj_dir=trajectories_path,
                 return_type="info_trajectory",
             )
             save_predictions(trajectories_path, instance_id, info)
-            if args.actions.open_pr and should_open_pr(args, info, token=env.get_git_communication_management().get_token()):
-                env.get_git_communication_management().open_pull_request(args.actions, info, trajectory)
+            if application_arguments.actions.open_pr and should_open_pr(application_arguments, info, token=development_environment.get_git_communication_management().get_token()):
+                development_environment.get_git_communication_management().open_pull_request(application_arguments.actions, info, trajectory)
 
         except KeyboardInterrupt:
             logger.info("Exiting InterCode environment...")
-            env.close()
+            development_environment.close()
             break
         except Exception as e:
             traceback.print_exc()
-            logger.warning(f"❌ Failed on {env.get_git_communication_management().get_record()['instance_id']}: {e}")
-            env.get_docker_communication().reset_container()
+            logger.warning(f"❌ Failed on {development_environment.get_git_communication_management().get_record()['instance_id']}: {e}")
+            development_environment.get_docker_communication().reset_container()
             continue
 
 
@@ -257,7 +207,7 @@ if __name__ == "__main__":
         top_p=0.95,
     )
     config_file = Path("config/default.yaml")
-    environment_arguments = EnvironmentArguments(
+    development_environment_arguments = DevelopmentEnvironmentArguments(
         image_name="ghcr.io/scaphilo/swe-agent-environment:main",
         data_path="princeton-nlp/SWE-bench_Lite",
         split="dev",
@@ -268,9 +218,9 @@ if __name__ == "__main__":
         model=model,
         config_file=config_file,
     )
-    defaults = ScriptArguments(
+    defaults = ApplicationArguments(
         suffix="",
-        environment=environment_arguments,
+        environment=development_environment_arguments,
         skip_existing=True,
         agent=agent_arguments,
         actions=ActionsArguments(open_pr=False, skip_if_commits_reference_issue=True),
@@ -287,5 +237,5 @@ if __name__ == "__main__":
 
     yaml.add_representer(str, multiline_representer)
 
-    args = parse(ScriptArguments, default=defaults, add_config_path_arg=False)
+    args = parse(ApplicationArguments, default=defaults, add_config_path_arg=False)
     main(args)
