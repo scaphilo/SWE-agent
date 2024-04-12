@@ -7,8 +7,10 @@ import config
 from ghapi.core import GhApi
 from git import Repo
 
-from swe_agent.development_environment.utils import get_instances, get_gh_issue_data, parse_gh_issue_url, parse_gh_repo_url, \
-    format_trajectory_markdown, copy_file_to_container
+from swe_agent.development_environment.utils import (get_gh_issue_data, parse_gh_issue_url, parse_gh_repo_url, \
+    format_trajectory_markdown, copy_file_to_container, fetch_github_issue_details, load_dataset_from_directory,
+                                                     UndefinedSourcecodeRepositoryType, load_huggingface_dataset)
+
 
 from swebench import (
     get_environment_yml,
@@ -20,7 +22,7 @@ PATH_TO_ENV_YML = "/root/environment.yml"
 
 
 class GitCommunicationManagement:
-    def __init__(self, data_path, is_github_url, split, idx, logger, install_python_environment,
+    def __init__(self, sourcecode_repository_path, sourcecode_repository_type, split, idx, logger, install_python_environment,
                  no_mirror, docker_communication, timeout):
         self.docker_communication = docker_communication
         self.idx = idx
@@ -28,11 +30,11 @@ class GitCommunicationManagement:
         self.no_mirror = no_mirror
         self.install_python_environment = install_python_environment
         self.logger = logger
-        self.data_path = data_path
+        self.sourcecode_repository_path = sourcecode_repository_path
         self.base_commit = None
-        self.is_github_url = is_github_url
+        self.sourcecode_repository_type = sourcecode_repository_type
         self.timeout = timeout
-        self.token = os.environ.get("GITHUB_TOKEN", None)
+        self.github_token = os.environ.get("GITHUB_TOKEN", None)
         # Get commit hash
         try:
             repo = Repo(search_parent_directories=True)
@@ -43,17 +45,30 @@ class GitCommunicationManagement:
             logger.warning("Failed to get commit hash for this repo")
             self.commit_sha = None
 
-        if (self.token is None or self.token == "") and os.path.isfile(
+        if (self.github_token is None or self.github_token == "") and os.path.isfile(
                 os.path.join(os.getcwd(), "keys.cfg")
         ):
             self.cfg = config.Config(os.path.join(os.getcwd(), "keys.cfg"))
-            self.token = self.cfg.get("GITHUB_TOKEN", "git")
-        self.data = get_instances(self.data_path, self.base_commit, self.split, token=self.token)
-        self.record = self.data[idx]
-        self.logger.info(f"💽 Loaded dataset from {self.data_path}")
+            self.github_token = self.cfg.get("GITHUB_TOKEN", "git")
+        if self.sourcecode_repository_type == "Github":
+            self.path_to_sourcecode_repository = fetch_github_issue_details(github_issue_url=sourcecode_repository_path,
+                                                                            base_commit=self.base_commit,
+                                                                            token=self.github_token)
+        elif self.sourcecode_repository_type == "File":
+            self.path_to_sourcecode_repository = load_dataset_from_directory(file_path=self.sourcecode_repository_path,
+                                                                             split=self.split)
+        elif self.sourcecode_repository_type == "Huggingface":
+            self.path_to_sourcecode_repository = load_huggingface_dataset(file_path=sourcecode_repository_path,
+                                                                          base_commit=self.base_commit,
+                                                                          split=self.split)
+        else:
+            raise UndefinedSourcecodeRepositoryType("The Sourcecode Repository Type: %s does not exist"
+                                                    .format(self.sourcecode_repository_type))
+        self.record = self.path_to_sourcecode_repository[idx]
+        self.logger.info(f"💽 Loaded dataset from {self.sourcecode_repository_path}")
 
-    def get_data(self):
-        return self.data
+    def get_path_to_sourcecode_repository(self):
+        return self.path_to_sourcecode_repository
 
     def get_query(self):
         return self.query
@@ -62,7 +77,7 @@ class GitCommunicationManagement:
         return self.record
 
     def get_token(self):
-        return self.token
+        return self.github_token
 
     def open_pull_request(self, action_config, info, trajectory):
         """Create PR to repository"""
@@ -70,7 +85,7 @@ class GitCommunicationManagement:
         # todo: have better way of handling this
         # Adding random string suffix to avoid name conflicts if we had a previously failed run
         issue_url = self.data_path
-        issue = get_gh_issue_data(issue_url, token=self.token)
+        issue = get_gh_issue_data(issue_url, token=self.github_token)
         branch_name = f"swe-agent-fix-#{issue.number}-" + str(random.random())[2:10]
 
         self.docker_communication.communicate_with_handling(
@@ -101,7 +116,7 @@ class GitCommunicationManagement:
         else:
             owner, repo = parse_gh_repo_url(action_config.push_gh_repo_url)
         if action_config.push_gh_repo_url:
-            fork_url = f"https://{self.token}@github.com/{owner}/{repo}.git"
+            fork_url = f"https://{self.github_token}@github.com/{owner}/{repo}.git"
             self.docker_communication.communicate_with_handling(
                 input=f"git remote add fork {fork_url}",
                 error_msg="Failed to create new git remote",
@@ -123,7 +138,7 @@ class GitCommunicationManagement:
             f"to close [#{issue.number}]({issue_url}) ({issue.title}).\n\nCloses #{issue.number}."
         )
         body += "\n\n" + format_trajectory_markdown(trajectory)
-        api = GhApi(token=self.token)
+        api = GhApi(token=self.github_token)
         pr_info = api.pulls.create(
             owner=owner,
             repo=repo,
@@ -172,17 +187,17 @@ class GitCommunicationManagement:
         folders = self.docker_communication.communicate(input="ls").split("\n")
         repo_name = self.record["repo"].replace("/", "__")
         if repo_name not in folders:
-            if not self.no_mirror and not self.is_github_url:
+            if not self.no_mirror and not self.sourcecode_repository_type == "Github":
                 self.logger.info(f"{repo_name} not found in container, cloning...")
                 self.docker_communication.communicate_with_handling(
-                    input=f"git clone https://{self.token}@github.com/swe-bench/{repo_name}.git",
+                    input=f"git clone https://{self.github_token}@github.com/swe-bench/{repo_name}.git",
                     error_msg="Failed to clone repository from mirror",
                     timeout_duration=self.timeout,
                 )
             else:
                 self.logger.info(f"Trying to clone from non-mirror...")
                 self.docker_communication.communicate_with_handling(
-                    input=f"git clone https://{self.token}@github.com/{self.record['repo']}.git {repo_name}",
+                    input=f"git clone https://{self.github_token}@github.com/{self.record['repo']}.git {repo_name}",
                     error_msg="Failed to clone repository from non-mirror",
                     timeout_duration=self.timeout,
                 )

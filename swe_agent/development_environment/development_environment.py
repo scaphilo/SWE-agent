@@ -24,9 +24,9 @@ class DevelopmentEnvironment(gym.Env):
     def __init__(self, args: DevelopmentEnvironmentArguments):
         super().__init__()
         self.split = args.split
-        self.data_path = args.data_path
+        self.sourcecode_repository_path = args.sourcecode_repository_path
         self.no_mirror = args.no_mirror
-        self.is_github_url = is_from_github_url(args.data_path)
+        self.sourcecode_repository_type = args.sourcecode_repository_type
         self.container_name = args.container_name
         self.install_python_environment = args.install_environment
         handler = RichHandler(show_time=False, show_path=False)
@@ -48,8 +48,8 @@ class DevelopmentEnvironment(gym.Env):
         self.docker_communication = DockerCommunicationManagement(image_name=self.image_name,
                                                                   container_name=self.container_name,
                                                                   logger=self.logger)
-        self.git_communication_management = GitCommunicationManagement(data_path=self.data_path,
-                                                                       is_github_url=self.is_github_url,
+        self.git_communication_management = GitCommunicationManagement(sourcecode_repository_path=self.sourcecode_repository_path,
+                                                                       sourcecode_repository_type=self.sourcecode_repository_type,
                                                                        idx=self.idx,
                                                                        split=self.split,
                                                                        logger=self.logger,

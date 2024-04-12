@@ -290,7 +290,7 @@ def parse_gh_repo_url(repo_url: str) -> Tuple[str, str]:
     if not repo_url.startswith('http://') and not repo_url.startswith('https://'):
         repo_url = 'https://' + repo_url
     parts = repo_url.split('/')
-    owner = parts[3] 
+    owner = parts[3]
     repo = parts[4]
     return owner, repo
 
@@ -305,15 +305,49 @@ def get_gh_issue_data(issue_url: str, *, token: str = ""):
     return api.issues.get(owner, repo, issue_number)
 
 
-def get_instances(file_path: str, base_commit: str = None, split: str = None, token: str = None):
+def fetch_github_issue_details(github_issue_url: str, base_commit: str = None, token: str = None) -> list:
     """
-    Getter function for handling json, jsonl files
+    Fetches the GitHub issue details and constructs an instance.
 
     Arguments:
-        file_path (str): Path to file
+        github_issue_url (str): A GitHub issue URL.
+        token (str, optional): GitHub API token. Defaults to None.
+        base_commit:
+
     Returns:
-        List of instances
+        list: A list containing the constructed instance.
     """
+
+    try:
+        owner, repo, issue_number = parse_gh_issue_url(github_issue_url)
+    except InvalidGithubURL:
+        pass
+    else:
+        record = dict()
+        api = GhApi(token=token)
+        issue = api.issues.get(owner, repo, issue_number)
+        title = issue.title if issue.title else ""
+        body = issue.body if issue.body else ""
+        text = f"{title}\n{body}\n"
+        record["repo"] = f"{owner}/{repo}"
+        record["base_commit"] = base_commit if base_commit else get_commit(api, owner, repo, base_commit).sha
+        record["version"] = record["base_commit"][:7]
+        record["problem_statement"] = text
+        record["instance_id"] = f"{owner}__{repo}-i{issue_number}"
+    return [record,]
+
+def load_dataset_from_directory(file_path: str, split: str = None) -> dict:
+    """
+    Loads data from a local directory.
+
+    Arguments:
+        file_path (str): Directory path from where data should be retrieved.
+        split (str, optional): A specific segment of the dataset to be returned. Defaults to None.
+
+    Returns:
+        dict: The data fetched from the directory.
+    """
+
     # If file_path is a directory, attempt load from disk
     if os.path.isdir(file_path):
         dataset_or_dict = load_from_disk(file_path)
@@ -321,26 +355,19 @@ def get_instances(file_path: str, base_commit: str = None, split: str = None, to
             return dataset_or_dict[split]
         return dataset_or_dict
 
-    # If file_path is a github issue url, fetch the issue and return a single instance
-    if is_from_github_url(file_path):
-        try: 
-            owner, repo, issue_number = parse_gh_issue_url(file_path)
-        except InvalidGithubURL:
-            pass
-        else:
-            record = dict()
-            api = GhApi(token=token)
-            issue = api.issues.get(owner, repo, issue_number)
-            title = issue.title if issue.title else ""
-            body = issue.body if issue.body else ""
-            text = f"{title}\n{body}\n"
-            record["repo"] = f"{owner}/{repo}"
-            record["base_commit"] = base_commit if base_commit else get_commit(api, owner, repo, base_commit).sha
-            record["version"] = record["base_commit"][:7]
-            record["problem_statement"] = text
-            record["instance_id"] = f"{owner}__{repo}-i{issue_number}"
-            return [record,]
-    elif base_commit is not None:
+def load_huggingface_dataset(file_path: str, base_commit: str = None, split: str = None) -> dict:
+    """
+    Loads a HuggingFace dataset.
+
+    Arguments:
+        file_path (str): Path to the HuggingFace dataset.
+        split (str, optional): A specific segment of the dataset to be returned. Defaults to None.
+        base_commit:
+
+    Returns:
+        dict: The requested HuggingFace dataset split.
+    """
+    if base_commit is not None:
         raise ValueError("base_commit must be None if data_path is not a github issue url")
 
     # If file_path is a file, load the file
@@ -348,15 +375,14 @@ def get_instances(file_path: str, base_commit: str = None, split: str = None, to
         return json.load(open(file_path))
     if file_path.endswith(".jsonl"):
         return [json.loads(x) for x in open(file_path, 'r').readlines()]
-
-    # Attempt load from HF datasets as a last resort
     try:
-        return load_dataset(file_path, split=split)
+        dataset = load_dataset(file_path, split=split)
     except:
         raise ValueError(
             f"Could not load instances from {file_path}. "
             "Please ensure --data_path is a GitHub URL, a SWE-bench HuggingFace dataset, or a JSON/JSONL file."
         )
+    return dataset
 
 
 def get_associated_commit_urls(org: str, repo: str, issue_number: str, *, token: str = "") -> list[str]:
@@ -416,5 +442,12 @@ def format_trajectory_markdown(trajectory: List[Dict[str, str]]):
     suffix = [
         "",
         "</details>",
-    ] 
+    ]
     return "\n".join(prefix) + "\n\n---\n\n".join(steps) + "\n".join(suffix)
+
+class UndefinedSourcecodeRepositoryType(Exception):
+    def __init__(self, value):
+        self.value = value
+
+    def __str__(self):
+        return repr(self.value)

@@ -21,7 +21,7 @@ class ApplicationArguments(FlattenedAccess, FrozenSerializable):
     def run_name(self):
         """Generate a unique name for this run based on the arguments."""
         model_name = self.agent.model.model_name.replace(":", "-")
-        data_stem = get_data_path_name(self.development_environment_arguments.data_path)
+        data_stem = get_data_path_name(self.development_environment_arguments.sourcecode_repository_path)
         config_stem = Path(self.agent.config_file).stem
 
         temp = self.agent.model.temperature
