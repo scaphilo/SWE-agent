@@ -13,8 +13,9 @@ from swe_agent.swe_agent.model.models import (
 from swe_agent.swe_agent.model.model_apistats import APIStats
 from swe_agent.swe_agent.parsing import ParseFunction, FormatError
 from swe_agent.environment.utils import LOGGER_NAME
-from swe_agent.environment.swe_env import DockerCommunicationManagement
-from swe_agent.environment.swe_env import GitCommunicationManagement
+from swe_agent.environment.git_communication_management import GitCommunicationManagement
+from swe_agent.environment.docker_communication_management import  DockerCommunicationManagement
+from swe_agent.environment.swe_env import EnvironmentManagement
 from tenacity import RetryError
 from typing import Optional, Tuple
 
@@ -99,10 +100,12 @@ class Agent:
         """Return the history of the agent since the last reset."""
         return self.config.history_processor([entry for entry in self.history if entry["agent"] == self.name])
 
-    def save_trajectory(self, trajectory, traj_dir, git_comm_env: GitCommunicationManagement, docker_env: DockerCommunicationManagement, info):
+    def save_trajectory(self, trajectory, traj_dir,
+                        env: EnvironmentManagement,
+                        git_comm_env: GitCommunicationManagement, info):
         log_path = traj_dir / (git_comm_env.record['instance_id'] + ".traj")
         log_dict = {
-            "environment": docker_env.name,
+            "environment": env.name,
             "trajectory": trajectory,
             "history": self.history,
             "info": info,
@@ -461,19 +464,18 @@ class Agent:
     def run(
             self,
             setup_args,
-            docker_env: DockerCommunicationManagement,
-            git_comm_env: GitCommunicationManagement,
+            env: EnvironmentManagement,
             observation: str = None,
             traj_dir: Optional[Path] = None,
             return_type: Optional[str] = "info",
-            init_model_stats: Optional[APIStats] = None,
-        ):
+            init_model_stats: Optional[APIStats] = None,):
         """
         Run the agent on an environment.
         Return the final value of the specified return type.
         """
         done = False
-
+        docker_env = env.get_docker_communication()
+        git_comm_env = env.get_git_communication_management()
         if docker_env.get_container_obj().id != self.last_container_id:
             logger.info(f"Initializing agent settings for container {docker_env.get_container_obj().id}")
             self.init_environment_vars(docker_env)
@@ -491,7 +493,7 @@ class Agent:
             run_action = self._guard_multiline_input(action)
             for sub_action in self.split_actions(run_action):
                 if sub_action['agent'] == self.name or sub_action['cmd_name'] == self.config.submit_command:
-                    obs, _, done, info = docker_env.step(sub_action['action'])
+                    obs, _, done, info = env.step(sub_action['action'])
                     observations.append(obs)
                     if sub_action['cmd_name'] == self.config.submit_command:
                         done = True
@@ -515,7 +517,7 @@ class Agent:
             )
             info['model_stats'] = self.model.stats.to_dict()
             if traj_dir:
-                self.save_trajectory(trajectory, traj_dir, docker_env=docker_env, git_comm_env=git_comm_env, info=info)
+                self.save_trajectory(trajectory, traj_dir, env=env, git_comm_env=git_comm_env, info=info)
         if return_type == "info":
             return info
         if return_type == "info_trajectory":

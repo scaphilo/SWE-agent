@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   web:
-    image: sweagent/swe-agent-run:latest
+    image: ghcr.io/scaphilo/swe-agent-dev-container:main
     volumes:
-      - ./keys.cfg:/app/keys.cfg
+      - .:/app
       - /var/run/docker.sock:/var/run/docker.sock

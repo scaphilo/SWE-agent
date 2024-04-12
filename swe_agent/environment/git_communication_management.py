@@ -55,6 +55,9 @@ class GitCommunicationManagement:
     def get_data(self):
         return self.data
 
+    def get_query(self):
+        return self.query
+
     def get_record(self):
         return self.record
 

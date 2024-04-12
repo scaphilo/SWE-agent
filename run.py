@@ -106,7 +106,7 @@ def main(args: ScriptArguments):
                 continue
 
             # Get info, patch information
-            issue = getattr(env, "query", None)
+            issue = env.get_git_communication_management().get_query()
             files = []
             if "patch" in env.get_git_communication_management().get_record():
                 files = "\n".join(
@@ -131,8 +131,7 @@ def main(args: ScriptArguments):
             }
             info, trajectory = agent.run(
                 setup_args=setup_args,
-                docker_env=env.get_docker_communication(),
-                git_comm_env=env.get_git_communication_management(),
+                env=env,
                 observation=observation,
                 traj_dir=trajectories_path,
                 return_type="info_trajectory",

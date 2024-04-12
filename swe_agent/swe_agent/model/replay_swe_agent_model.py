@@ -12,7 +12,7 @@ class ReplayModel(SEWAgentModel):
     def __init__(self, args: ModelArguments, commands: list[Command]):
         super().__init__(args, commands)
 
-        if self.args.replay_path == None or not os.path.exists(self.args.replay_path):
+        if self.args.replay_path is None or not os.path.exists(self.args.replay_path):
             raise ValueError(
                 "--replay_path must point to a file that exists to run a replay policy"
             )
