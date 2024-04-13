@@ -52,8 +52,8 @@ class AnthropicModel(SEWAgentModel):
         "claude-haiku": "claude-3-haiku-20240307",
     }
 
-    def __init__(self, args: ModelArguments, commands: list[Command]):
-        super().__init__(args, commands)
+    def __init__(self, model_arguments: ModelArguments, commands: list[Command]):
+        super().__init__(model_arguments, commands)
 
         # Set Anthropic key
         cfg = config.Config(os.path.join(os.getcwd(), "keys.cfg"))
@@ -128,8 +128,8 @@ class AnthropicModel(SEWAgentModel):
                 model=self.api_model,
                 prompt=prompt,
                 max_tokens_to_sample=self.model_metadata["max_context"] - input_tokens,
-                temperature=self.args.temperature,
-                top_p=self.args.top_p,
+                temperature=self.model_arguments.temperature,
+                top_p=self.model_arguments.top_p,
             )
             # Calculate + update costs, return response
             response = completion.completion
@@ -147,8 +147,8 @@ class AnthropicModel(SEWAgentModel):
             messages=messages,
             max_tokens=self.model_metadata["max_tokens"],
             model=self.api_model,
-            temperature=self.args.temperature,
-            top_p=self.args.top_p,
+            temperature=self.model_arguments.temperature,
+            top_p=self.model_arguments.top_p,
             system=system_message,
         )
 

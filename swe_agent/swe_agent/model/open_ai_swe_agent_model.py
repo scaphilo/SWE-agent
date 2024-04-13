@@ -7,7 +7,7 @@ from tenacity import retry, wait_random_exponential, stop_after_attempt, retry_i
 
 from swe_agent import ModelArguments
 from swe_agent.swe_agent.command.commands import Command
-from swe_agent.swe_agent.model.models import SEWAgentModel, CostLimitExceededError
+from swe_agent.swe_agent.model.models import SEWAgentModel, CostLimitExceededError, ContextWindowExceededError
 
 
 class OpenAIModel(SEWAgentModel):
@@ -58,12 +58,12 @@ class OpenAIModel(SEWAgentModel):
         "gpt3-0125": "gpt-3.5-turbo-0125",
     }
 
-    def __init__(self, args: ModelArguments, commands: list[Command]):
-        super().__init__(args, commands)
+    def __init__(self, model_arguments: ModelArguments, commands: list[Command]):
+        super().__init__(model_arguments, commands)
 
         # Set OpenAI key
         cfg = config.Config(os.path.join(os.getcwd(), "keys.cfg"))
-        if self.args.model_name.startswith("azure"):
+        if self.model_arguments.model_name.startswith("azure"):
             self.api_model = cfg["AZURE_OPENAI_DEPLOYMENT"]
             self.client = AzureOpenAI(api_key=cfg["AZURE_OPENAI_API_KEY"], azure_endpoint=cfg["AZURE_OPENAI_ENDPOINT"], api_version=cfg.get("AZURE_OPENAI_API_VERSION", "2024-02-01"))
         else:
@@ -100,11 +100,11 @@ class OpenAIModel(SEWAgentModel):
             response = self.client.chat.completions.create(
                 messages=self.history_to_messages(history),
                 model=self.api_model,
-                temperature=self.args.temperature,
-                top_p=self.args.top_p,
+                temperature=self.model_arguments.temperature,
+                top_p=self.model_arguments.top_p,
             )
         except BadRequestError as e:
-            raise CostLimitExceededError(f"Context window ({self.model_metadata['max_context']} tokens) exceeded")
+            raise ContextWindowExceededError(f"Context window ({self.model_metadata['max_context']} tokens) exceeded")
         # Calculate + update costs, return response
         input_tokens = response.usage.prompt_tokens
         output_tokens = response.usage.completion_tokens

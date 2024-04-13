@@ -19,17 +19,17 @@ class SEWAgentModel:
     MODELS = {}
     SHORTCUTS = {}
 
-    def __init__(self, args: ModelArguments, commands: list[Command]):
-        self.args = args
+    def __init__(self, model_arguments: ModelArguments, commands: list[Command]):
+        self.model_arguments = model_arguments
         self.commands = commands
         self.model_metadata = {}
         self.stats = APIStats()
 
         # Map `model_name` to API-compatible name `api_model`
         self.api_model = (
-            self.SHORTCUTS[self.args.model_name]
-            if self.args.model_name in self.SHORTCUTS
-            else self.args.model_name
+            self.SHORTCUTS[self.model_arguments.model_name]
+            if self.model_arguments.model_name in self.SHORTCUTS
+            else self.model_arguments.model_name
         )
 
         # Map model name to metadata (cost, context info)
@@ -37,19 +37,19 @@ class SEWAgentModel:
             **{dest: self.MODELS[src] for dest, src in self.SHORTCUTS.items()},
             **self.MODELS,
         }
-        if args.model_name in MODELS:
-            self.model_metadata = MODELS[args.model_name]
-        elif args.model_name.startswith("ft:"):
-            ft_model = args.model_name.split(":")[1]
+        if model_arguments.model_name in MODELS:
+            self.model_metadata = MODELS[model_arguments.model_name]
+        elif model_arguments.model_name.startswith("ft:"):
+            ft_model = model_arguments.model_name.split(":")[1]
             self.model_metadata = MODELS[ft_model]
-        elif args.model_name.startswith("ollama:"):
-            self.api_model = args.model_name.split('ollama:', 1)[1]
+        elif model_arguments.model_name.startswith("ollama:"):
+            self.api_model = model_arguments.model_name.split('ollama:', 1)[1]
             self.model_metadata = self.MODELS[self.api_model]
-        elif args.model_name.startswith("azure:"):
-            azure_model = args.model_name.split("azure:", 1)[1]
+        elif model_arguments.model_name.startswith("azure:"):
+            azure_model = model_arguments.model_name.split("azure:", 1)[1]
             self.model_metadata = MODELS[azure_model]
         else:
-            raise ValueError(f"Unregistered model ({args.model_name}). Add model name to MODELS metadata to {self.__class__}")
+            raise ValueError(f"Unregistered model ({model_arguments.model_name}). Add model name to MODELS metadata to {self.__class__}")
 
     def reset_stats(self, other: APIStats = None):
         if other is None:
@@ -95,22 +95,16 @@ class SEWAgentModel:
         )
 
         # Check whether total cost or instance cost limits have been exceeded
-        if (
-            self.args.total_cost_limit > 0
-            and self.stats.total_cost >= self.args.total_cost_limit
-        ):
-            logger.warning(
-                f"Cost {self.stats.total_cost:.2f} exceeds limit {self.args.total_cost_limit:.2f}"
-            )
+        total_cost_limit_bigger_than_zero = self.model_arguments.total_cost_limit > 0
+        total_cost_limit_reached = self.stats.total_cost >= self.model_arguments.total_cost_limit
+        instance_cost_limit_bigger_than_zero = self.model_arguments.per_instance_cost_limit > 0
+        instance_cost_limit_reached = self.stats.instance_cost >= self.model_arguments.per_instance_cost_limit
+        if total_cost_limit_bigger_than_zero and total_cost_limit_reached:
+            logger.warning(f"Cost {self.stats.total_cost:.2f} exceeds limit {self.model_arguments.total_cost_limit:.2f}")
             raise CostLimitExceededError("Total cost limit exceeded")
 
-        if (
-            self.args.per_instance_cost_limit > 0
-            and self.stats.instance_cost >= self.args.per_instance_cost_limit
-        ):
-            logger.warning(
-                f"Cost {self.stats.instance_cost:.2f} exceeds limit {self.args.per_instance_cost_limit:.2f}"
-            )
+        if instance_cost_limit_bigger_than_zero and instance_cost_limit_reached:
+            logger.warning(f"Cost {self.stats.instance_cost:.2f} exceeds limit {self.model_arguments.per_instance_cost_limit:.2f}")
             raise CostLimitExceededError("Instance cost limit exceeded")
         return cost
 

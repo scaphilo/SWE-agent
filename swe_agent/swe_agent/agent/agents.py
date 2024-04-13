@@ -330,9 +330,9 @@ class Agent:
         Returns the thought, action, and raw model output.
         """
         # Condition for handling outputs with no thought (just action)
-        if self.model.args.model_name == "human":
+        if self.model.model_arguments.model_name == "human":
             return "", model_output, model_output
-        elif self.model.args.model_name == "human_thought":
+        elif self.model.model_arguments.model_name == "human_thought":
             thought, action = ParseFunction.get("ThoughtActionParser")(
                 model_output,
                 self.config._commands + self.config.subroutine_types,

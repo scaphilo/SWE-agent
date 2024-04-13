@@ -48,8 +48,8 @@ class TogetherModel(SEWAgentModel):
         "redpajama7b": "togethercomputer/RedPajama-INCITE-7B-Chat",
     }
 
-    def __init__(self, args: ModelArguments, commands: list[Command]):
-        super().__init__(args, commands)
+    def __init__(self, model_arguments: ModelArguments, commands: list[Command]):
+        super().__init__(model_arguments, commands)
 
         # Set Together key
         cfg = config.Config(os.path.join(os.getcwd(), "keys.cfg"))
@@ -88,8 +88,8 @@ class TogetherModel(SEWAgentModel):
             prompt=prompt,
             max_tokens=self.model_metadata["max_context"],
             stop="<human>",
-            temperature=self.args.temperature,
-            top_p=self.args.top_p,
+            temperature=self.model_arguments.temperature,
+            top_p=self.model_arguments.top_p,
         )
         # Calculate + update costs, return response
         response = completion["output"]["choices"][0]["text"].split("<human>")[0]

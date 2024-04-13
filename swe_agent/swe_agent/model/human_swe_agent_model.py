@@ -6,8 +6,8 @@ from swe_agent.swe_agent.model.models import SEWAgentModel
 class HumanModel(SEWAgentModel):
     MODELS = {"human": {}}
 
-    def __init__(self, args: ModelArguments, commands: list[Command]):
-        super().__init__(args, commands)
+    def __init__(self, model_arguments: ModelArguments, commands: list[Command]):
+        super().__init__(model_arguments, commands)
 
         # Determine which commands require multi-line input
         self.multi_line_command_endings = {

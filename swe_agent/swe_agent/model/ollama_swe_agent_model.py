@@ -14,10 +14,10 @@ class OllamaModel(SEWAgentModel):
         "cost_per_output_token": 0,
     })
 
-    def __init__(self, args: ModelArguments, commands: list[Command]):
-        super().__init__(args, commands)
+    def __init__(self, model_arguments: ModelArguments, commands: list[Command]):
+        super().__init__(model_arguments, commands)
         from ollama import Client
-        self.client = Client(host=args.host_url)
+        self.client = Client(host=model_arguments.host_url)
 
     def history_to_messages(
         self, history: list[dict[str, str]], is_demonstration: bool = False
@@ -49,8 +49,8 @@ class OllamaModel(SEWAgentModel):
             model=self.api_model,
             messages=self.history_to_messages(history),
             options={
-                "temperature": self.args.temperature,
-                "top_p": self.args.top_p,
+                "temperature": self.model_arguments.temperature,
+                "top_p": self.model_arguments.top_p,
             }
         )
         # Calculate + update costs, return response
