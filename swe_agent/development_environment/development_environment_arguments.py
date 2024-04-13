@@ -12,7 +12,7 @@ class DevelopmentEnvironmentArguments(FrozenSerializable):
     base_commit: Optional[str] = None  # used only with data_path as url
     container_name: Optional[str] = None
     install_environment: bool = True
-    timeout: int = 35
+    docker_communication_timeout: int = 35
     verbose: bool = False
     no_mirror: bool = False
-    sourcecode_repository_type: str = "Github" # Defines type of sourcecode repository
+    sourcecode_repository_type: str = "Github"  # Defines type of sourcecode repository

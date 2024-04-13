@@ -27,10 +27,10 @@ class DockerCommunicationManagement:
     def get_container_name(self):
         return self.container_name
 
-    def _communicate(self, communication_input: str, timeout_duration=25, ) -> str:
+    def _communicate(self, bash_command: str, timeout_duration=25, ) -> Tuple[str, int]:
         try:
             self.return_code = None
-            cmd = communication_input if communication_input.endswith("\n") else communication_input + "\n"
+            cmd = bash_command if bash_command.endswith("\n") else bash_command + "\n"
             os.write(self.container.stdin.fileno(), cmd.encode())
             time.sleep(0.1)
             self.container.stdin.flush()
@@ -39,7 +39,7 @@ class DockerCommunicationManagement:
             self.logger.error(
                 "Failed to communicate with container. Check docker logs for more information."
             )
-            raise RuntimeError("Failed to communicate with container")
+            raise RuntimeError("Failed to communicate with development environment")
         try:
             buffer = read_with_timeout(self.container, self.get_pids, timeout_duration)
             self.container.stdin.write("echo $?\n")
@@ -47,55 +47,51 @@ class DockerCommunicationManagement:
             self.container.stdin.flush()
             exit_code = read_with_timeout(self.container, self.get_pids, 5).strip()
         except Exception as e:
-            self.logger.error(f"Read with timeout failed on input:\n---\n{communication_input}\n---")
+            self.logger.error(f"Read with timeout failed on input:\n---\n{bash_command}\n---")
             raise e
         if not exit_code.isdigit():
             raise RuntimeError(f"Container crashed. Failed to get exit code. Output:\n---\n{buffer}\n---")
-        self.return_code = int(exit_code)
-        return buffer
+        return buffer, int(exit_code)
 
-    def _check_syntax(self, input: str) -> Tuple [str, bool]:
+    def _check_syntax(self, input: str) -> Tuple[str, bool]:
         """
         Saves environment variables to file
         """
-        output = self._communicate(f"/bin/bash -n <<'EOF'\n{input}\nEOF\n")
-        return output, self.return_code == 0
+        output, exit_code = self._communicate(f"/bin/bash -n <<'EOF'\n{input}\nEOF\n")
+        return output, exit_code
 
-    def communicate(self, input: str, timeout_duration=25) -> str:
+    def exit_development_environment(self) -> str:
+        self.container.terminate()
+        self.return_code = 0
+        return ""
+
+    def communicate(self, bash_command: str, timeout_duration=25) -> Tuple[str, int]:
         """
         Sends input to container and returns output
 
         Args:
-            input (`str`) - input to send to container
+            bash_command (`str`) - input to send to container
 
         Returns:
             output (`str`) - output from container
         """
-        if input.strip() != "exit":
-            output, valid = self._check_syntax(input)
-            if not valid:
-                return output  # shows syntax errors
-            output = self._communicate(
-                input, timeout_duration=timeout_duration,
-            )
-            self.communicate_output = output
-            return output
-        else:
-            self.container.terminate()
-            self.return_code = 0
-            self.communicate_output = ""
-            return ""
+        synthax_errors, exit_code = self._check_syntax(bash_command)
+        if exit_code == 1:
+            exit_code = 1
+            return synthax_errors, exit_code
+        commandline_response, exit_code = self._communicate(bash_command, timeout_duration=timeout_duration,)
+        return commandline_response, exit_code
 
-    def communicate_with_handling(self, input: str, error_msg: str, timeout_duration=25) -> str:
+    def communicate_with_handling(self, bash_command: str, error_msg: str, timeout_duration=25) -> str:
         """
         Wrapper for communicate function that raises error if return code is non-zero
         """
-        logs = self.communicate(input, timeout_duration=timeout_duration)
-        if self.return_code != 0:
-            self.logger.error(f"{error_msg}: {logs}")
+        commandline_response, exit_code = self.communicate(bash_command, timeout_duration=timeout_duration)
+        if exit_code != 0:
+            self.logger.error(f"{error_msg}: {commandline_response}")
             self.close()
-            raise RuntimeError(f"{error_msg}: {logs}")
-        return logs
+            raise RuntimeError(f"{error_msg}: {commandline_response}")
+        return commandline_response
 
     def reset_container(self) -> None:
         if self.container is not None:
@@ -144,19 +140,19 @@ class DockerCommunicationManagement:
         Initialize custom commands within container
         """
         self.communicate_with_handling(
-            "source /root/.bashrc",
+            bash_command="source /root/.bashrc",
             error_msg="Failed to source .bashrc",
         )
         self.communicate_with_handling(
-            "mkdir -p /root/commands",
+            bash_command="mkdir -p /root/commands",
             error_msg="Failed to create commands directory",
         )
         self.communicate_with_handling(
-            "touch /root/commands/__init__.py",
+            bash_command="touch /root/commands/__init__.py",
             error_msg="Failed to create __init__.py",
         )
         self.communicate_with_handling(
-            "export PATH=$PATH:/root/commands",
+            bash_command="export PATH=$PATH:/root/commands",
             error_msg="Failed to add commands directory to PATH",
         )
 
@@ -166,7 +162,7 @@ class DockerCommunicationManagement:
         """
         self.logger.info("Beginning environment shutdown...")
         try:
-            self.communicate(input="exit")
+            self.exit_development_environment()
         except KeyboardInterrupt:
             raise
         except:
@@ -214,7 +210,7 @@ class DockerCommunicationManagement:
         except TimeoutError:
             pass
         try:
-            output = self.communicate(input="echo 'interrupted'", timeout_duration=5)
+            output = self.communicate(bash_command="echo 'interrupted'", timeout_duration=5)
             assert output.strip().endswith("interrupted"), "container health check failed"
         except TimeoutError:
             raise RuntimeError("Failed to interrupt container")
@@ -229,7 +225,7 @@ class DockerCommunicationManagement:
             copy_file_to_container(self.get_container_obj(), contents, f"/root/commands/{name}")
             if command['type'] == "source_file":
                 self.communicate_with_handling(
-                    f"source /root/commands/{name}",
+                    bash_command=f"source /root/commands/{name}",
                     error_msg=(
                         f"Failed to source {name}. If you meant to make a script,"
                         " start the file with a shebang (e.g. #!/usr/bin/env python)."
@@ -237,7 +233,7 @@ class DockerCommunicationManagement:
                 )
             elif command['type'] == "script":
                 self.communicate_with_handling(
-                    f"chmod +x /root/commands/{name}",
+                    bash_command=f"chmod +x /root/commands/{name}",
                     error_msg=f"Failed to chmod {name}",
                 )
             elif command['type'] == "utility":

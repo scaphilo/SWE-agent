@@ -10,6 +10,7 @@ logger = logging.getLogger("api_models")
 class ContextWindowExceededError(Exception):
     pass
 
+
 class CostLimitExceededError(Exception):
     pass
 
@@ -117,7 +118,7 @@ class SEWAgentModel:
         raise NotImplementedError("Use a subclass of BaseModel")
 
 
-def get_model(args: ModelArguments, commands: Optional[list[Command]] = None):
+def get_model(model_arguments: ModelArguments, commands: Optional[list[Command]] = None):
     """
     Returns correct model object given arguments and commands
     """
@@ -131,17 +132,17 @@ def get_model(args: ModelArguments, commands: Optional[list[Command]] = None):
     if commands is None:
         commands = []
 
-    if args.model_name == "human":
-        return HumanModel(args, commands)
-    if args.model_name == "human_thought":
-        return HumanThoughtModel(args, commands)
-    if args.model_name == "replay":
-        return ReplayModel(args, commands)
-    elif args.model_name.startswith("gpt") or args.model_name.startswith("ft:gpt") or args.model_name.startswith("azure:gpt"):
-        return OpenAIModel(args, commands)
-    elif args.model_name.startswith("claude"):
-        return AnthropicModel(args, commands)
-    elif args.model_name.startswith("ollama"):
-        return OllamaModel(args, commands)
+    if model_arguments.model_name == "human":
+        return HumanModel(model_arguments, commands)
+    if model_arguments.model_name == "human_thought":
+        return HumanThoughtModel(model_arguments, commands)
+    if model_arguments.model_name == "replay":
+        return ReplayModel(model_arguments, commands)
+    elif model_arguments.model_name.startswith("gpt") or model_arguments.model_name.startswith("ft:gpt") or model_arguments.model_name.startswith("azure:gpt"):
+        return OpenAIModel(model_arguments, commands)
+    elif model_arguments.model_name.startswith("claude"):
+        return AnthropicModel(model_arguments, commands)
+    elif model_arguments.model_name.startswith("ollama"):
+        return OllamaModel(model_arguments, commands)
     else:
-        raise ValueError(f"Invalid model name: {args.model_name}")
+        raise ValueError(f"Invalid model name: {model_arguments.model_name}")

@@ -29,8 +29,9 @@ class Agent:
     def __init__(self, name: str, agent_arguments: AgentArguments):
         self.name = name
         self.config = agent_arguments.config
-        self.model = get_model(agent_arguments.model,
-                               self.config._commands + self.config.subroutine_types)
+        self.model_commands = self.config._commands + self.config.subroutine_types
+        self.model = get_model(model_arguments=agent_arguments.model,
+                               commands=self.model_commands )
         self.system_args = {
             "command_docs": self.config.command_docs,
             **self.config.env_variables,
@@ -41,7 +42,7 @@ class Agent:
         self.last_container_id = None
 
     def setup(self, instance_args, init_model_stats=None) -> None:
-        """Setup the agent for a new instance."""
+        """Set up the agent for a new instance."""
         self.model.reset_stats(init_model_stats)
         self.instance_args = instance_args
 
@@ -171,8 +172,9 @@ class Agent:
                 rem_action = ""
         return '\n'.join(parsed_action)
 
-    def split_actions(self, action: str, pattern_type="subroutine") -> list[str]:
-        """Split an action into a list of actions in a greedy manner, each of which is a subroutine call or a single command."""
+    def split_actions(self, action: str, pattern_type="subroutine") -> list[dict]:
+        """Split an action into a list of actions in a greedy manner,
+        each of which is a subroutine call or a single command."""
         parsed_action = list()
         rem_action = action
         while rem_action.strip():
@@ -185,9 +187,14 @@ class Agent:
                     parsed_action.append({'agent': self.name, 'action': pre_action, 'cmd_name': None})
                 if match_action.strip():
                     if match_action.split()[0] == self.config.submit_command:
-                        parsed_action.append({'agent': self.name, 'action': match_action, 'cmd_name': first_match.group(1)})  # submit command is not a subroutine
+                        parsed_action.append({'agent': self.name,
+                                              'action': match_action,
+                                              'cmd_name': first_match.group(1)})  # submit command is not a subroutine
                     else:
-                        parsed_action.append({'agent': first_match.group(1), 'args': first_match.group(2), 'action': match_action, 'cmd_name': first_match.group(1)})
+                        parsed_action.append({'agent': first_match.group(1),
+                                              'args': first_match.group(2),
+                                              'action': match_action,
+                                              'cmd_name': first_match.group(1)})
             else:
                 parsed_action.append({'agent': self.name, 'action': rem_action, 'cmd_name': None})
                 rem_action = ""
@@ -217,8 +224,12 @@ class Agent:
         self.subroutine_patterns[self.config.submit_command] = submit_pat
         self.command_patterns[self.config.submit_command] = submit_pat
 
-    def forward(self, observation: str, available_actions: list[str], state: str) -> Tuple[str, str, str]:
-        thought, action, output = self.forward_with_error_check(observation, state)
+    def forward(self,
+                previous_commandline_response: str,
+                available_actions: list[str],
+                container_state: str) -> Tuple[str, str, str]:
+        thought, action, output = self.forward_with_error_check(previous_commandline_response=previous_commandline_response,
+                                                                container_state=container_state)
 
         self.history.append(
             {"role": "assistant",
@@ -313,52 +324,49 @@ class Agent:
             return True
         return False
 
-    def check_format_and_requery(
-        self, output: str,
-    ) -> Tuple[str, str, str]:
+    def check_format_and_requery(self, model_output: str) -> Tuple[str, str, str]:
         """Query the model with the current state and observation with the appropriate template.
-
         Try to parse the output into a thought and action. Retry if the output is malformatted or the action is blocked.
-
         Returns the thought, action, and raw model output.
         """
         # Condition for handling outputs with no thought (just action)
         if self.model.args.model_name == "human":
-            return "", output, output
+            return "", model_output, model_output
         elif self.model.args.model_name == "human_thought":
             thought, action = ParseFunction.get("ThoughtActionParser")(
-                output,
+                model_output,
                 self.config._commands + self.config.subroutine_types,
                 strict=False,
             )
-            return thought, action, output
+            return thought, action, model_output
 
-        format_fails = blocklist_fails = 0
+        format_fails = 0
+        blocklist_fails = 0
 
         while format_fails + blocklist_fails <= 2:
             try:
-                thought, action = self.config.parse_function(
-                    output,
-                    self.config._commands + self.config.subroutine_types,
-                    strict=False,
-                )
+                thought, action = self.config.parse_function(model_output,
+                                                             self.config._commands + self.config.subroutine_types,
+                                                             strict=False,)
             except KeyboardInterrupt:
                 raise
             except FormatError as e:
                 format_fails += 1
-                output = self.retry_after_format_fail(output)
+                model_output = self.retry_after_format_fail(model_output)
                 continue
             if self.should_block_action(action):
                 blocklist_fails += 1
-                output = self.retry_after_blocklist_fail(output, action)
+                model_output = self.retry_after_blocklist_fail(model_output, action)
             else:
-                return thought, action, output
-        logger.warning(f"Malformat limit reached: \n{output}")
-        return "Exit due to format error", "exit_format", output
+                return thought, action, model_output
+        logger.warning(f"Malformat limit reached: \n{model_output}")
+        return "Exit due to format error", "exit_format", model_output
 
-    def forward_with_error_check(self, observation: str, state: str) -> Tuple[str, str, str]:
+    def forward_with_error_check(self,
+                                 previous_commandline_response: str,
+                                 container_state: str) -> Tuple[str, str, str]:
         try:
-            output = self.forward_model(observation, state)
+            model_output = self.forward_model(previous_commandline_response, container_state)
         except KeyboardInterrupt:
             raise
         except RuntimeError as e:
@@ -381,12 +389,13 @@ class Agent:
                 "exit_api",
                 f"exit due to retry error: {e}",
             )
-        return self.check_format_and_requery(output)
+        agent_output = self.check_format_and_requery(model_output)
+        return agent_output
     
-    def init_environment_vars(self, env):
-        self.set_environment_vars(env, self.config.env_variables)
+    def init_environment_vars(self, docker_comm_mgmt: DockerCommunicationManagement):
+        self.set_environment_vars(docker_comm_mgmt, self.config.env_variables)
 
-    def set_environment_vars(self, env: DockerCommunicationManagement, env_variables):
+    def set_environment_vars(self, docker_comm_mgmt: DockerCommunicationManagement, env_variables):
         commands_to_execute = (
             [self.config.state_command.code] +
             # [code for code in self.config.util_functions] +
@@ -395,9 +404,9 @@ class Agent:
         )
         commands = "\n".join(commands_to_execute)
         try:
-            output = env.communicate(commands)
-            if env.return_code != 0:
-                raise RuntimeError(f"Nonzero return code: {env.return_code}\nOutput: {output}")
+            output, exit_code = docker_comm_mgmt.communicate(commands)
+            if exit_code != 0:
+                raise RuntimeError(f"Nonzero return code: {docker_comm_mgmt.return_code}\nOutput: {output}")
         except KeyboardInterrupt:
                 raise
         except Exception as e:
@@ -405,19 +414,19 @@ class Agent:
                 raise e
         command_files = list()
         for file in self.config.command_files:
-            datum = dict()
+            command_file = dict()
             contents = open(file, 'r').read()
-            datum['contents'] = contents
+            command_file['contents'] = contents
             filename = Path(file).name
             if not contents.strip().startswith('#!'):
                 if filename.endswith('.sh'):
                     # files are sourced, so they are not executable
-                    datum['name'] = Path(file).name
-                    datum['type'] = 'source_file'
+                    command_file['name'] = Path(file).name
+                    command_file['type'] = 'source_file'
                 elif filename.startswith('_'):
                     # files are sourced, so they are not executable
-                    datum['name'] = Path(file).name
-                    datum['type'] = 'utility'
+                    command_file['name'] = Path(file).name
+                    command_file['type'] = 'utility'
                 else:
                     raise ValueError((
                         f"Non-shell script file {file} does not start with shebang.\n"
@@ -426,10 +435,10 @@ class Agent:
                     ))
             else:
                 # scripts are made executable
-                datum['name'] = Path(file).name.rsplit('.', 1)[0]
-                datum['type'] = 'script'
-            command_files.append(datum)
-        env.add_commands(command_files)
+                command_file['name'] = Path(file).name.rsplit('.', 1)[0]
+                command_file['type'] = 'script'
+            command_files.append(command_file)
+        docker_comm_mgmt.add_commands(command_files)
     
     def get_environment_vars(self, env):
         env_vars = dict()
@@ -453,22 +462,20 @@ class Agent:
         sub_agent_output = sub_agent.run(
             {"issue": sub_action['args']},
             env,
-            observation=obs,
+            previous_commandline_response=obs,
             return_type=return_type,
-            init_model_stats=self.model.stats,
-            )
+            init_model_stats=self.model.stats,)
         self.history += sub_agent.history
         self.set_environment_vars(env, env_vars)
         env.communicate(f"cd {cwd}")
         self.model.stats.replace(sub_agent.model.stats)
         return sub_agent_output
 
-    def run(
-            self,
-            setup_args,
-            env: DevelopmentEnvironment,
-            observation: str = None,
-            traj_dir: Optional[Path] = None,
+    def run(self,
+            agent_setup_arguments,
+            development_environment: DevelopmentEnvironment,
+            previous_commandline_response: str = None,
+            trajectory_directory: Optional[Path] = None,
             return_type: Optional[str] = "info",
             init_model_stats: Optional[APIStats] = None,):
         """
@@ -476,27 +483,33 @@ class Agent:
         Return the final value of the specified return type.
         """
         done = False
-        docker_env = env.get_docker_communication()
-        git_comm_env = env.get_git_communication_management()
+        docker_env = development_environment.get_docker_communication()
+        git_comm_env = development_environment.get_git_communication_management()
         if docker_env.get_container_obj().id != self.last_container_id:
             logger.info(f"Initializing agent settings for container {docker_env.get_container_obj().id}")
             self.init_environment_vars(docker_env)
             self.last_container_id = docker_env.container_obj.id
         # Re-initialize primary
-        self.setup(setup_args, init_model_stats)
+        self.setup(agent_setup_arguments, init_model_stats)
 
         # Run action/observation loop
         trajectory = []
         info = {}
         while not done:
-            state = docker_env.communicate(self.state_command) if self.state_command else None
-            thought, action, output = self.forward(observation, docker_env.get_available_actions(), state)
-            observations = list()
+            if self.state_command:
+                container_state, exit_code = docker_env.communicate(bash_command=self.state_command)
+            else:
+                container_state = None
+            available_actions = docker_env.get_available_actions()
+            thought, action, output = self.forward(previous_commandline_response=previous_commandline_response,
+                                                   available_actions=available_actions,
+                                                   container_state=container_state)
+            new_commandline_response_list = list()
             run_action = self._guard_multiline_input(action)
             for sub_action in self.split_actions(run_action):
                 if sub_action['agent'] == self.name or sub_action['cmd_name'] == self.config.submit_command:
-                    obs, _, done, info = env.step(sub_action['action'])
-                    observations.append(obs)
+                    new_commandline_response_element, _, done, info = development_environment.step(sub_action['action'])
+                    new_commandline_response_list.append(new_commandline_response_element)
                     if sub_action['cmd_name'] == self.config.submit_command:
                         done = True
                     if done:
@@ -504,22 +517,31 @@ class Agent:
                 else:
                     agent_name = sub_action['agent']
                     sub_agent_output = self.call_subroutine(agent_name, sub_action, docker_env)
-                    observations.append(sub_agent_output)
+                    new_commandline_response_list.append(sub_agent_output)
 
-            observation = '\n'.join([obs for obs in observations if obs is not None])
+            new_commandline_response = ""
+            for commandline_response_element in new_commandline_response_list:
+                if commandline_response_element is not None:
+                    new_commandline_response = new_commandline_response + "\n" + commandline_response_element
 
             trajectory.append(
                 {
                     "action": action,
-                    "observation": observation,
+                    "observation": new_commandline_response,
                     "response": output,
-                    "state": state,
+                    "state": container_state,
                     "thought": thought,
                 }
             )
             info['model_stats'] = self.model.stats.to_dict()
-            if traj_dir:
-                self.save_trajectory(trajectory, traj_dir, env=env, git_comm_env=git_comm_env, info=info)
+            if trajectory_directory:
+                self.save_trajectory(trajectory,
+                                     trajectory_directory,
+                                     env=development_environment,
+                                     git_comm_env=git_comm_env,
+                                     info=info)
+
+            previous_commandline_response = new_commandline_response  # Prepare next loop for agent
         if return_type == "info":
             return info
         if return_type == "info_trajectory":

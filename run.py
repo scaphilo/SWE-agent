@@ -1,11 +1,11 @@
 import logging
-
 import traceback
 import yaml
 
 from pathlib import Path
 from rich.logging import RichHandler
 from simple_parsing import parse
+from unidiff import PatchSet
 
 from swe_agent.application.action_arguments import ActionsArguments
 from swe_agent.application.application import Application
@@ -15,8 +15,6 @@ from swe_agent.swe_agent.agent.agents import Agent
 from swe_agent.swe_agent.model.model_arguments import ModelArguments
 from swe_agent import DevelopmentEnvironmentArguments
 from swe_agent.development_environment.development_environment import DevelopmentEnvironment
-
-from unidiff import PatchSet
 
 handler = RichHandler(show_time=False, show_path=False)
 handler.setLevel(logging.DEBUG)
@@ -32,19 +30,18 @@ def main(application_arguments: ApplicationArguments):
     logger.info(f"📙 Arguments: {application_arguments.dumps_yaml()}")
     agent = Agent(name="primary", agent_arguments=application_arguments.agent)
     development_environment = DevelopmentEnvironment(application_arguments.development_environment_arguments)
-
     application.create_trajectory_directory()
     application.save_arguments()
 
-    for index in range(len(development_environment.get_git_communication_management().get_path_to_sourcecode_repository())):
+    for task_count in range(len(development_environment.get_git_communication_management().get_path_to_sourcecode_repository())):
         try:
             # Reset environment
-            instance_id = development_environment.get_git_communication_management().get_path_to_sourcecode_repository()[index]["instance_id"]
+            instance_id = development_environment.get_git_communication_management().get_path_to_sourcecode_repository()[task_count]["instance_id"]
             if application.should_skip(instance_id):
                 continue
-            logger.info("▶️  Beginning task " + str(index))
+            logger.info("▶️ Beginning task " + str(task_count))
 
-            observation, info = development_environment.reset(index)
+            reset_commandline_response, info = development_environment.reset(task_count)
             if info is None:
                 continue
 
@@ -66,17 +63,17 @@ def main(application_arguments: ApplicationArguments):
             if "FAIL_TO_PASS" in development_environment.get_git_communication_management().get_record():
                 tests = "\n".join([f"- {x}" for x in development_environment.get_git_communication_management().get_record()["FAIL_TO_PASS"]])
 
-            setup_args = {
+            agent_setup_arguments = {
                 "issue": issue,
                 "files": files,
                 "test_files": test_files,
                 "tests": tests
             }
             info, trajectory = agent.run(
-                setup_args=setup_args,
-                env=development_environment,
-                observation=observation,
-                traj_dir=application.get_trajectory_directory(),
+                agent_setup_arguments=agent_setup_arguments,
+                development_environment=development_environment,
+                previous_commandline_response=reset_commandline_response,
+                trajectory_directory=application.get_trajectory_directory(),
                 return_type="info_trajectory",
             )
             application.save_predictions(instance_id, info)

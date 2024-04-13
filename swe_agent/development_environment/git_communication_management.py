@@ -7,34 +7,42 @@ import config
 from ghapi.core import GhApi
 from git import Repo
 
-from swe_agent.development_environment.utils import (get_gh_issue_data, parse_gh_issue_url, parse_gh_repo_url, \
-    format_trajectory_markdown, copy_file_to_container, fetch_github_issue_details, load_dataset_from_directory,
+from swe_agent.development_environment.utils import (get_gh_issue_data, parse_gh_issue_url, parse_gh_repo_url,
+                                                     format_trajectory_markdown, copy_file_to_container,
+                                                     fetch_github_issue_details, load_dataset_from_directory,
                                                      UndefinedSourcecodeRepositoryType, load_huggingface_dataset)
-
+from swe_agent.development_environment.docker_communication_management import DockerCommunicationManagement
 
 from swebench import (
     get_environment_yml,
     get_requirements,
     MAP_VERSION_TO_INSTALL
 )
-PATH_TO_REQS = "/root/requirements.txt"
+PATH_TO_REQUIREMENTS = "/root/requirements.txt"
 PATH_TO_ENV_YML = "/root/environment.yml"
 
 
 class GitCommunicationManagement:
-    def __init__(self, sourcecode_repository_path, sourcecode_repository_type, split, idx, logger, install_python_environment,
-                 no_mirror, docker_communication, timeout):
+    def __init__(self,
+                 sourcecode_repository_path: str,
+                 sourcecode_repository_type: str,
+                 split: str,
+                 logger,
+                 install_python_environment,
+                 no_mirror,
+                 docker_communication: 'DockerCommunicationManagement',
+                 timeout: int):
         self.docker_communication = docker_communication
-        self.idx = idx
+        self.task_count = 0
         self.split = split
         self.no_mirror = no_mirror
         self.install_python_environment = install_python_environment
-        self.logger = logger
         self.sourcecode_repository_path = sourcecode_repository_path
-        self.base_commit = None
         self.sourcecode_repository_type = sourcecode_repository_type
-        self.timeout = timeout
+        self.base_commit = None
         self.github_token = os.environ.get("GITHUB_TOKEN", None)
+        self.timeout = timeout
+        self.logger = logger
         # Get commit hash
         try:
             repo = Repo(search_parent_directories=True)
@@ -64,7 +72,7 @@ class GitCommunicationManagement:
         else:
             raise UndefinedSourcecodeRepositoryType("The Sourcecode Repository Type: %s does not exist"
                                                     .format(self.sourcecode_repository_type))
-        self.record = self.path_to_sourcecode_repository[idx]
+        self.record = self.path_to_sourcecode_repository[self.task_count]
         self.logger.info(f"💽 Loaded dataset from {self.sourcecode_repository_path}")
 
     def get_path_to_sourcecode_repository(self):
@@ -84,27 +92,27 @@ class GitCommunicationManagement:
         self.logger.info("Opening PR")
         # todo: have better way of handling this
         # Adding random string suffix to avoid name conflicts if we had a previously failed run
-        issue_url = self.data_path
+        issue_url = self.sourcecode_repository_path
         issue = get_gh_issue_data(issue_url, token=self.github_token)
         branch_name = f"swe-agent-fix-#{issue.number}-" + str(random.random())[2:10]
 
         self.docker_communication.communicate_with_handling(
-            input=f"rm model.patch",
+            bash_command=f"rm model.patch",
             error_msg="Failed to remove model patch",
             timeout_duration=10,
         )
         self.docker_communication.communicate_with_handling(
-            input=f"git checkout -b {branch_name}",
+            bash_command=f"git checkout -b {branch_name}",
             error_msg="Failed to switch to new branch",
             timeout_duration=10,
         )
         self.docker_communication.communicate_with_handling(
-            input=f"git add .",
+            bash_command=f"git add .",
             error_msg="Failed to add commits",
             timeout_duration=10,
         )
         self.docker_communication.communicate_with_handling(
-            input=f"git commit -m 'Fix: {issue.title}' -m 'Closes #{issue.number}' ",
+            bash_command=f"git commit -m 'Fix: {issue.title}' -m 'Closes #{issue.number}' ",
             error_msg="Failed to commit changes",
             timeout_duration=10,
         )
@@ -118,13 +126,13 @@ class GitCommunicationManagement:
         if action_config.push_gh_repo_url:
             fork_url = f"https://{self.github_token}@github.com/{owner}/{repo}.git"
             self.docker_communication.communicate_with_handling(
-                input=f"git remote add fork {fork_url}",
+                bash_command=f"git remote add fork {fork_url}",
                 error_msg="Failed to create new git remote",
                 timeout_duration=10,
             )
             remote = "fork"
         self.docker_communication.communicate_with_handling(
-            input=f"git push {remote} {branch_name}",
+            bash_command=f"git push {remote} {branch_name}",
             error_msg=(
                 "Failed to push branch to remote. Please check your token and permissions. "
                 "You might want to push to a fork with the push_gh_repo_url option."
@@ -154,7 +162,7 @@ class GitCommunicationManagement:
             "'Ready for Review' to bring it to the attention of the maintainers."
         )
 
-    def reset(self, index: int = None, apply_test_patch: bool = False) -> Tuple[str, dict]:
+    def reset(self, task_count: int = None, apply_test_patch: bool = False) -> Tuple[str, dict]:
         """
         Function to reset container between each task instance.
         * Clones instance's repository
@@ -163,17 +171,16 @@ class GitCommunicationManagement:
         * Check out base commit
 
         Arguments:
-            index (`int`) - index of task instance to reset to
+            task_count (`int`) - index of task instance to reset to
         Returns:
             observation (`str`) - output from container
             info (`dict`) - additional information (e.g. debugging information)
         """
-        info = {}
-        info["commit_sha"] = self.commit_sha
+        info = {"commit_sha": self.commit_sha}
 
         # Get task instance
-        self.idx = index if index is not None else self.idx
-        self.idx += 1
+        self.task_count = task_count if task_count is not None else self.task_count
+        self.task_count += 1
 
         # Set query, gold command
         self.base_commit = self.record["base_commit"]
@@ -183,21 +190,21 @@ class GitCommunicationManagement:
         ### Reset Container ###
 
         # Clone repository if not already cloned
-        self.docker_communication.communicate(input="cd /")
-        folders = self.docker_communication.communicate(input="ls").split("\n")
+        self.docker_communication.communicate(bash_command="cd /")
+        folders = self.docker_communication.communicate(bash_command="ls")[0].split("\n")
         repo_name = self.record["repo"].replace("/", "__")
         if repo_name not in folders:
             if not self.no_mirror and not self.sourcecode_repository_type == "Github":
                 self.logger.info(f"{repo_name} not found in container, cloning...")
                 self.docker_communication.communicate_with_handling(
-                    input=f"git clone https://{self.github_token}@github.com/swe-bench/{repo_name}.git",
+                    bash_command=f"git clone https://{self.github_token}@github.com/swe-bench/{repo_name}.git",
                     error_msg="Failed to clone repository from mirror",
                     timeout_duration=self.timeout,
                 )
             else:
                 self.logger.info(f"Trying to clone from non-mirror...")
                 self.docker_communication.communicate_with_handling(
-                    input=f"git clone https://{self.github_token}@github.com/{self.record['repo']}.git {repo_name}",
+                    bash_command=f"git clone https://{self.github_token}@github.com/{self.record['repo']}.git {repo_name}",
                     error_msg="Failed to clone repository from non-mirror",
                     timeout_duration=self.timeout,
                 )
@@ -213,7 +220,7 @@ class GitCommunicationManagement:
             "git clean -fdxq",
         ]:
             self.docker_communication.communicate_with_handling(
-                input=cmd,
+                bash_command=cmd,
                 error_msg="Failed to clean repository",
             )
 
@@ -226,28 +233,28 @@ class GitCommunicationManagement:
             "export SEARCH_INDEX=0",
         ]:
             self.docker_communication.communicate_with_handling(
-                input=cmd,
+                bash_command=cmd,
                 error_msg="Failed to reset environment variables",
             )
 
         # Set up environment
         self.docker_communication.communicate_with_handling(
-            "source /root/miniconda3/etc/profile.d/conda.sh",
+            bash_command="source /root/miniconda3/etc/profile.d/conda.sh",
             error_msg="Failed to source conda",
         )
 
-        system = self.docker_communication.communicate("uname -s").strip().lower()
-        arch = self.docker_communication.communicate("uname -m").strip().lower()
+        system = self.docker_communication.communicate("uname -s")[0].strip().lower()
+        arch = self.docker_communication.communicate("uname -m")[0].strip().lower()
         if system == 'linux' and arch == 'x86_64':
             self.docker_communication.communicate_with_handling(
-                f"apt update; apt install build-essential -y",
+                bash_command=f"apt update; apt install build-essential -y",
                 error_msg="Failed to install build-essential",
                 timeout_duration=self.timeout,
             )
 
         # Call install environment helper function if specified
         if self.install_python_environment:
-            if self.is_github_url:
+            if self.sourcecode_repository_type == "Github":
                 self.logger.warning((
                     "install_environment is set to True, but the data path is a GitHub URL. "
                     "Skipping conda environment installation."
@@ -256,7 +263,7 @@ class GitCommunicationManagement:
                 self.install_env()
         # Install mypy for linting purposes
         self.docker_communication.communicate_with_handling(
-            f"pip install flake8",
+            bash_command=f"pip install flake8",
             error_msg="Failed to install flake8 (lint library)"
         )
 
@@ -270,12 +277,12 @@ class GitCommunicationManagement:
                 shell=True,
             )
             self.docker_communication.communicate_with_handling(
-                input="git apply /root/test.patch",
+                bash_command="git apply /root/test.patch",
                 error_msg="Failed to apply test patch correctly"
             )
             os.remove(path_to_patch)
         # Write any metadata to info if necessary
-        return None, info
+        return "", info
 
     def install_env(self) -> None:
         """
@@ -290,7 +297,7 @@ class GitCommunicationManagement:
         install_configs = MAP_VERSION_TO_INSTALL[self.record["repo"]][
             str(self.record["version"])
         ]
-        if env_check.strip() == "":
+        if env_check[0].strip() == "":
             self.logger.info(f"{env_name} conda env not found, creating...")
             packages = (
                 install_configs.get("packages", "")
@@ -298,24 +305,24 @@ class GitCommunicationManagement:
             if packages == "requirements.txt":
                 # Create conda environment
                 self.docker_communication.communicate_with_handling(
-                    f"conda create -n {env_name} python={install_configs['python']} -y",
+                    bash_command=f"conda create -n {env_name} python={install_configs['python']} -y",
                     error_msg="Failed to create conda environment",
                     timeout_duration=self.timeout,
                 )
                 # Write reqs to requirements.txt in docker container
                 content_reqs = get_requirements(self.record)
-                copy_file_to_container(self.docker_communication.get_container_obj(), content_reqs, PATH_TO_REQS)
+                copy_file_to_container(self.docker_communication.get_container_obj(), content_reqs, PATH_TO_REQUIREMENTS)
                 # Create conda environment + install reqs
                 self.docker_communication.communicate_with_handling(
-                    f"conda activate {env_name}",
+                    bash_command=f"conda activate {env_name}",
                     error_msg="Failed to activate conda environment",
                 )
                 self.docker_communication.communicate_with_handling(
-                    f"pip install -r {PATH_TO_REQS}",
+                    bash_command=f"pip install -r {PATH_TO_REQUIREMENTS}",
                     error_msg="Failed to install requirements.txt",
                     timeout_duration=self.timeout,
                 )
-                self.docker_communication.communicate(f"rm {PATH_TO_REQS}")
+                self.docker_communication.communicate(f"rm {PATH_TO_REQUIREMENTS}")
             elif packages == "environment.yml":
                 # Write environment.yml to file
                 content_env_yml = get_environment_yml(self.record, env_name)
@@ -323,20 +330,20 @@ class GitCommunicationManagement:
                 if "no_use_env" in install_configs and install_configs["no_use_env"]:
                     # Create conda environment
                     self.docker_communication.communicate_with_handling(
-                        f"conda create -c conda-forge -n {env_name} python={install_configs['python']} -y",
+                        bash_command=f"conda create -c conda-forge -n {env_name} python={install_configs['python']} -y",
                         error_msg="Failed to create conda environment",
                         timeout_duration=self.timeout,
                     )
                     # Install packages
                     self.docker_communication.communicate_with_handling(
-                        f"conda env update -f {PATH_TO_ENV_YML}",
+                        bash_command=f"conda env update -f {PATH_TO_ENV_YML}",
                         error_msg="Failed to install environment.yml",
                         timeout_duration=self.timeout
                     )
                 else:
                     # Create environment + install packages
                     self.docker_communication.communicate_with_handling(
-                        f"conda env create --file {PATH_TO_ENV_YML}",
+                        bash_command=f"conda env create --file {PATH_TO_ENV_YML}",
                         error_msg="Failed to create conda environment with environment.yml",
                         timeout_duration=self.timeout,
                     )
@@ -344,21 +351,21 @@ class GitCommunicationManagement:
             else:
                 # Create environment + install packages
                 self.docker_communication.communicate_with_handling(
-                    f"conda create -n {env_name} python={install_configs['python']} {packages} -y",
+                    bash_command=f"conda create -n {env_name} python={install_configs['python']} {packages} -y",
                     error_msg="Failed to create conda environment",
                     timeout_duration=self.timeout,
                 )
             # Install extra pip packages if specified
             if "pip_packages" in install_configs:
                 self.docker_communication.communicate_with_handling(
-                    f"source activate {env_name} && pip install {install_configs['pip_packages']}",
+                    bash_command=f"source activate {env_name} && pip install {install_configs['pip_packages']}",
                     error_msg="Failed to install pip packages",
                     timeout_duration=self.timeout
                 )
 
         # Activate environment
         self.docker_communication.communicate_with_handling(
-            f"conda activate {env_name}",
+            bash_command=f"conda activate {env_name}",
             error_msg="Failed to activate conda environment"
         )
 
@@ -367,14 +374,14 @@ class GitCommunicationManagement:
             self.logger.info("Running pre-install commands...")
             for pre_install_cmd in install_configs["pre_install"]:
                 self.docker_communication.communicate_with_handling(
-                    pre_install_cmd,
+                    bash_command=pre_install_cmd,
                     error_msg="Pre-install commands failed to execute successfully",
                 )
         self.logger.info(f"Installing {repo_name} at base commit...")
         if "install" in install_configs:
             install_cmd = install_configs["install"]
             self.docker_communication.communicate_with_handling(
-                install_cmd,
+                bash_command=install_cmd,
                 error_msg="Install command failed to execute successfully",
                 timeout_duration=self.timeout
             )
@@ -382,6 +389,6 @@ class GitCommunicationManagement:
             self.logger.info("Running post-install commands...")
             for post_install_cmd in install_configs["post_install"]:
                 self.docker_communication.communicate_with_handling(
-                    post_install_cmd,
+                    bash_command=post_install_cmd,
                     error_msg="Post-install commands failed to execute successfully",
                 )
