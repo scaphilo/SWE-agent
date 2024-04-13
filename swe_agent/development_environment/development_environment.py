@@ -139,19 +139,19 @@ class DevelopmentEnvironment(gym.Env):
                 info["exit_status"] = "early_exit"
                 self.logger.warning(f"Failed to interrupt container: {e}\nRESTARTING PROCESS.")
                 self.docker_communication.reset_container()
-                return commandline_response, 0, True, info
+                return commandline_response, 0, False, info
         except RuntimeError as e:
             commandline_response += "\nCOMMAND FAILED TO EXECUTE. RESTARTING PROCESS."
             info["exit_status"] = "early_exit"
             self.logger.warning(f"Failed to execute command: {e}\nRESTARTING PROCESS.")
             self.docker_communication.reset_container()
-            return commandline_response, 0, True, info
+            return commandline_response, 0, False, info
         except BrokenPipeError as e:
             commandline_response += "\nBROKEN PIPE ERROR. RESTARTING PROCESS."
             info["exit_status"] = "early_exit"
             self.logger.error(f"Broken pipe error: {e}\nRESTARTING PROCESS.")
             self.docker_communication.reset_container()
-            return commandline_response, 0, True, info
+            return commandline_response, 0, False, info
         except Exception as e:
             commandline_response += "\nEXECUTION FAILED OR COMMAND MALFORMED"
 

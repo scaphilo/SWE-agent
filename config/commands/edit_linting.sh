@@ -3,7 +3,12 @@
 #   edit <start_line>:<end_line>
 #   <replacement_text>
 #   end_of_edit
-# docstring: replaces lines <start_line> through <end_line> (inclusive) with the given text in the open file. The replacement text is terminated by a line with only end_of_edit on it. All of the <replacement text> will be entered, so make sure your indentation is formatted properly. Python files will be checked for syntax errors after the edit. If the system detects a syntax error, the edit will not be executed. Simply try to edit the file again, but make sure to read the error message and modify the edit command you issue accordingly. Issuing the same command a second time will just lead to the same error message again.
+# docstring: replaces lines <start_line> through <end_line> (inclusive) with the given text in the open file.
+#   The replacement_text text is terminated by a line with only end_of_edit on it. All of the <replacement_text text>
+#   will be entered, so make sure your indentation is formatted properly. Python files will be checked for
+#   syntax errors after the edit. If the system detects a syntax error, the edit will not be executed.
+#   Simply try to edit the file again, but make sure to read the error message and modify the edit command
+#   you issue accordingly. Issuing the same command a second time will just lead to the same error message again.
 # end_name: end_of_edit
 # arguments:
 #   start_line:
@@ -51,10 +56,10 @@ edit() {
     local end_line=$((end_line))
 
     local line_count=0
-    local replacement=()
+    local replacement_text=()
     while IFS= read -r line
     do
-        replacement+=("$line")
+        replacement_text+=("$line")
         ((line_count++))
     done
 
@@ -63,7 +68,7 @@ edit() {
 
     # Read the file line by line into an array
     mapfile -t lines < "$CURRENT_FILE"
-    local new_lines=("${lines[@]:0:$start_line}" "${replacement[@]}" "${lines[@]:$((end_line))}")
+    local new_lines=("${lines[@]:0:$start_line}" "${replacement_text[@]}" "${lines[@]:$((end_line))}")
     # Write the new stuff directly back into the original file
     printf "%s\n" "${new_lines[@]}" >| "$CURRENT_FILE"
     
