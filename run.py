@@ -41,8 +41,8 @@ def main(application_arguments: ApplicationArguments):
                 continue
             logger.info("▶️ Beginning task " + str(task_count))
 
-            reset_commandline_response, info = development_environment.reset(task_count)
-            if info is None:
+            reset_commandline_response, agent_infos = development_environment.reset(task_count)
+            if agent_infos is None:
                 continue
 
             # Get info, patch information
@@ -69,16 +69,18 @@ def main(application_arguments: ApplicationArguments):
                 "test_files": test_files,
                 "tests": tests
             }
-            info, trajectory = agent.run(
+            agent_infos, trajectory = agent.run(
                 agent_setup_arguments=agent_setup_arguments,
                 development_environment=development_environment,
                 previous_commandline_response=reset_commandline_response,
-                trajectory_directory=application.get_trajectory_directory(),
+                trajectory_path=application.get_trajectory_path(),
                 return_type="info_trajectory",
             )
-            application.save_predictions(instance_id, info)
-            if application_arguments.actions.open_pr and application.should_open_pr(info, token=development_environment.get_git_communication_management().get_token()):
-                development_environment.get_git_communication_management().open_pull_request(application_arguments.actions, info, trajectory)
+            application.save_predictions_json(instance_id, agent_infos)
+            should_open_pr = application.should_open_pr(agent_infos,
+                                                        token=development_environment.get_git_communication_management().get_token())
+            if application_arguments.actions.open_pr and should_open_pr:
+                development_environment.get_git_communication_management().open_pull_request(application_arguments.actions, agent_infos, trajectory)
 
         except KeyboardInterrupt:
             logger.info("Exiting InterCode environment...")

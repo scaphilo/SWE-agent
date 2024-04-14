@@ -23,7 +23,7 @@ class SEWAgentModel:
         self.model_arguments = model_arguments
         self.commands = commands
         self.model_metadata = {}
-        self.stats = APIStats()
+        self.api_statistics = APIStats()
 
         # Map `model_name` to API-compatible name `api_model`
         self.api_model = (
@@ -51,12 +51,12 @@ class SEWAgentModel:
         else:
             raise ValueError(f"Unregistered model ({model_arguments.model_name}). Add model name to MODELS metadata to {self.__class__}")
 
-    def reset_stats(self, other: APIStats = None):
-        if other is None:
-            self.stats = APIStats(total_cost=self.stats.total_cost)
+    def reset_api_statistics(self, api_statistics: APIStats = None):
+        if api_statistics is None:
+            self.api_statistics = APIStats(total_cost=self.api_statistics.total_cost)
             logger.info("Resetting model stats")
         else:
-            self.stats = other
+            self.api_statistics = api_statistics
 
     def update_stats(self, input_tokens, output_tokens):
         """
@@ -74,37 +74,37 @@ class SEWAgentModel:
             self.model_metadata["cost_per_input_token"] * input_tokens
             + self.model_metadata["cost_per_output_token"] * output_tokens
         )
-        self.stats.total_cost += cost
-        self.stats.instance_cost += cost
-        self.stats.tokens_sent += input_tokens
-        self.stats.tokens_received += output_tokens
-        self.stats.api_calls += 1
+        self.api_statistics.total_cost += cost
+        self.api_statistics.instance_cost += cost
+        self.api_statistics.tokens_sent += input_tokens
+        self.api_statistics.tokens_received += output_tokens
+        self.api_statistics.api_calls += 1
 
         # Log updated cost values to std. out.
         logger.info(
             f"input_tokens={input_tokens:_}, "
             f"output_tokens={output_tokens:_}, "
-            f"instance_cost={self.stats.instance_cost:.2f}, "
+            f"instance_cost={self.api_statistics.instance_cost:.2f}, "
             f"cost={cost:.2f}"
         )
         logger.info(
-            f"total_tokens_sent={self.stats.tokens_sent:_}, "
-            f"total_tokens_received={self.stats.tokens_received:_}, "
-            f"total_cost={self.stats.total_cost:.2f}, "
-            f"total_api_calls={self.stats.api_calls:_}"
+            f"total_tokens_sent={self.api_statistics.tokens_sent:_}, "
+            f"total_tokens_received={self.api_statistics.tokens_received:_}, "
+            f"total_cost={self.api_statistics.total_cost:.2f}, "
+            f"total_api_calls={self.api_statistics.api_calls:_}"
         )
 
         # Check whether total cost or instance cost limits have been exceeded
         total_cost_limit_bigger_than_zero = self.model_arguments.total_cost_limit > 0
-        total_cost_limit_reached = self.stats.total_cost >= self.model_arguments.total_cost_limit
+        total_cost_limit_reached = self.api_statistics.total_cost >= self.model_arguments.total_cost_limit
         instance_cost_limit_bigger_than_zero = self.model_arguments.per_instance_cost_limit > 0
-        instance_cost_limit_reached = self.stats.instance_cost >= self.model_arguments.per_instance_cost_limit
+        instance_cost_limit_reached = self.api_statistics.instance_cost >= self.model_arguments.per_instance_cost_limit
         if total_cost_limit_bigger_than_zero and total_cost_limit_reached:
-            logger.warning(f"Cost {self.stats.total_cost:.2f} exceeds limit {self.model_arguments.total_cost_limit:.2f}")
+            logger.warning(f"Cost {self.api_statistics.total_cost:.2f} exceeds limit {self.model_arguments.total_cost_limit:.2f}")
             raise CostLimitExceededError("Total cost limit exceeded")
 
         if instance_cost_limit_bigger_than_zero and instance_cost_limit_reached:
-            logger.warning(f"Cost {self.stats.instance_cost:.2f} exceeds limit {self.model_arguments.per_instance_cost_limit:.2f}")
+            logger.warning(f"Cost {self.api_statistics.instance_cost:.2f} exceeds limit {self.model_arguments.per_instance_cost_limit:.2f}")
             raise CostLimitExceededError("Instance cost limit exceeded")
         return cost
 
@@ -112,7 +112,7 @@ class SEWAgentModel:
         raise NotImplementedError("Use a subclass of BaseModel")
 
 
-def get_model(model_arguments: ModelArguments, commands: Optional[list[Command]] = None):
+def get_model(model_arguments: ModelArguments, commands: Optional[list[Command]] = None) -> SEWAgentModel:
     """
     Returns correct model object given arguments and commands
     """

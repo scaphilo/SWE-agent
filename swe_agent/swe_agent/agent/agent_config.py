@@ -15,7 +15,7 @@ from swe_agent.swe_agent.parsing import ParseFunction
 
 @dataclass(frozen=True)
 class AgentConfig(FrozenSerializable):
-    system_template: str
+    system_message_template: str
     instance_template: str
     next_step_template: Optional[str] = None  # defaults to instance_template
     next_step_no_output_template: Optional[str] = None  # defaults to next_step_template
@@ -64,7 +64,7 @@ class AgentConfig(FrozenSerializable):
             echo '{"working_dir": "'$(realpath --relative-to=$ROOT/.. $PWD)'"}';
         };""",
     )
-    _commands: list[Command] = field(default_factory=list)
+    commands: list[Command] = field(default_factory=list)
     _subroutines: dict[str, AgentSubroutine] = field(default_factory=dict)
     subroutine_types: list[AgentSubroutine] = field(default_factory=list)
 
@@ -90,7 +90,7 @@ class AgentConfig(FrozenSerializable):
             object.__setattr__(
                 self, "util_functions", self.util_functions + util_functions
             )
-            object.__setattr__(self, "_commands", self._commands + commands)
+            object.__setattr__(self, "_commands", self.commands + commands)
 
         for subroutine in self.subroutine_types:
             if subroutine.name == 'submit':
@@ -105,7 +105,7 @@ class AgentConfig(FrozenSerializable):
 
         multi_line_command_endings = {
             command.name: command.end_name
-            for command in [*self._commands, *self._subroutines.values()]
+            for command in [*self.commands, *self._subroutines.values()]
             if command.end_name is not None
         }
         object.__setattr__(self, "multi_line_command_endings", multi_line_command_endings)
@@ -113,7 +113,7 @@ class AgentConfig(FrozenSerializable):
             self,
             "command_docs",
             self.parse_command.generate_command_docs(
-                self._commands,
+                self.commands,
                 self.subroutine_types,
                 **self.env_variables,
                 ),
@@ -126,7 +126,7 @@ class AgentConfig(FrozenSerializable):
                 self.parse_function.format_error_template,
                 )
         object.__setattr__(self, "format_error_template", self.format_error_template.format(**self.__dict__))
-        for command in self._commands:
+        for command in self.commands:
             if command.name == self.submit_command:
                 object.__setattr__(self, "submit_command_end_name", command.end_name)
                 break

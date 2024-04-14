@@ -15,12 +15,12 @@ class Application:
 
     def __init__(self, application_arguments, logger):
         self.application_arguments = application_arguments
-        self.trajectory_directory = None
+        self.trajectory_path = None
         self.logger = logger
 
     def save_arguments(self):
         """Save the arguments to a yaml file to the run's trajectory directory."""
-        log_path = self.trajectory_directory / "args.yaml"
+        log_path = self.trajectory_path / "args.yaml"
 
         if log_path.exists():
             try:
@@ -35,7 +35,6 @@ class Application:
         with log_path.open("w") as f:
             self.application_arguments.dump_yaml(f)
 
-
     def should_skip(self, instance_id):
         """Check if we should skip this instance based on the instance filter and skip_existing flag."""
         # Skip instances that don't match the instance filter
@@ -48,7 +47,7 @@ class Application:
             return False
 
         # Check if there's an existing trajectory for this instance
-        log_path = self.trajectory_directory / (instance_id + ".traj")
+        log_path = self.trajectory_path / (instance_id + ".traj")
         if log_path.exists():
             with log_path.open("r") as f:
                 data = json.load(f)
@@ -65,17 +64,17 @@ class Application:
 
 
     def create_trajectory_directory(self):
-        self.trajectory_directory = Path("trajectories") / Path(getuser()) / self.application_arguments.run_name
-        os.makedirs(self.trajectory_directory, exist_ok=True)
+        self.trajectory_path = Path("trajectories") / Path(getuser()) / self.application_arguments.run_name
+        os.makedirs(self.trajectory_path, exist_ok=True)
 
-    def get_trajectory_directory(self):
-        return self.trajectory_directory
+    def get_trajectory_path(self):
+        return self.trajectory_path
 
-    def save_predictions(self, instance_id, info):
-        output_file = Path(self.trajectory_directory) / "all_preds.jsonl"
+    def save_predictions_json(self, instance_id, info):
+        output_file = Path(self.trajectory_path) / "all_predictions.json"
         model_patch = info["submission"] if "submission" in info else None
         datum = {
-            KEY_MODEL: Path(self.trajectory_directory).name,
+            KEY_MODEL: Path(self.trajectory_path).name,
             KEY_INSTANCE_ID: instance_id,
             KEY_PREDICTION: model_patch,
         }
@@ -83,8 +82,7 @@ class Application:
             print(json.dumps(datum), file=fp, flush=True)
         self.logger.info(f"Saved predictions to {output_file}")
 
-
-    def should_open_pr(self, info: Dict[str, Any], *, token: str="") -> bool:
+    def should_open_pr(self, info: Dict[str, Any], *, token: str = "") -> bool:
         """Does opening a PR make sense?"""
         if not info.get("submission"):
             self.logger.info("Not openening PR because submission was made.")

@@ -7,17 +7,7 @@ Every command subscribes to the following skeleton code.
 ```shell
 # @yaml
 # signature: [command] [argument(s)]
-# docstring: [Brief description of what your command does.]
-# arguments:
-#   [argument 1 name]:
-#       type: [type (i.e. integer, string)]
-#       description: [Brief description of this argument]
-#       required: [true|false]
-#   [argument 2 name]:
-#       ...
-[command]() {
-    # Implementation here
-}
+
 ```
 * If a command takes in arguments, reference them via positional parameters notation (i.e. `$1`).
 * If there are no arguments, omit the `arguments` section.
@@ -35,7 +25,7 @@ First, within your config file...
 * Add `config/commands/<file name>.sh` file to the `command_files` field.
 * Set the `parse_command` field to `ParseCommandBash` or `ParseCommandDetailed`. This key points to the functionality that generates how command documentation is shown to the agent.
 * Decide which template(s) you want to show the `{command_docs}` in.
-    * We strongly recommend including `{command_docs}` in the `system_template`, which is the first message shown to the agent for every task instance episode.
+    * We strongly recommend including `{command_docs}` in the `system_message_template`, which is the first message shown to the agent for every task instance episode.
     * You might also consider adding `{command_docs}` to the `format_error_template`, which is shown if the response provided by a model is malformed.
 * (Optional) Including a demonstration that uses a command is helpful to showcase proper use + increases the frequency with which the agent uses the command. If you'd like to add a demonstration...
     * Create a demonstration manually (i.e. `python run.py --model human_thought ...`) or automatically (i.e. `python run_replay --traj_path ...`)

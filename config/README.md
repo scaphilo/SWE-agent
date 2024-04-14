@@ -11,7 +11,7 @@ The configuration is a `.yaml` file that consists of several fields. They are fu
 
 ```yaml
 # Prompt Templates: Control how observations of environment are shown to agent
-system_template: | # .yaml syntax for multi-line string value
+system_message_template: | # .yaml syntax for multi-line string value
   First `system` message shown to agent
 instance_template: |- # .yaml syntax for multi-line string value w/ no new line
   Instance prompt, contains task instance-specific content

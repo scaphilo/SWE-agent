@@ -6,7 +6,7 @@ from simple_parsing.helpers import FrozenSerializable
 @dataclass(frozen=True)
 class AssistantMetadata(FrozenSerializable):
     """Pass observations to the assistant, and get back a response."""
-    system_template: Optional[str] = None
+    system_message_template: Optional[str] = None
     instance_template: Optional[str] = None
 
 

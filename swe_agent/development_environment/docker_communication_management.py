@@ -1,13 +1,18 @@
 import datetime
 import hashlib
+import shlex
 import os
 import time
+import signal
 import traceback
 from typing import Tuple
-
+import subprocess
 import docker
+from subprocess import PIPE, STDOUT
 
-from swe_agent.development_environment.utils import read_with_timeout, get_container, copy_file_to_container
+from swe_agent.development_environment.utils import read_with_timeout, copy_file_to_container
+START_UP_DELAY = 5
+TIMEOUT_DURATION = 25
 
 
 class DockerCommunicationManagement:
@@ -27,10 +32,63 @@ class DockerCommunicationManagement:
     def get_container_name(self):
         return self.container_name
 
+    # def _communicate(self, bash_command, timeout_duration=TIMEOUT_DURATION):
+    #     """Execute a command in a Docker container."""
+    #     if bash_command.endswith("\n"):
+    #         cmd = bash_command
+    #     else:
+    #         cmd = bash_command + "\n"
+    #     self.logger.debug(f"Effective command sent to the development environment: {bash_command}.")
+    #     try:
+    #         exit_code = None
+    #         output = ''
+    #
+    #         _, stdout = self.container_obj.exec_run(
+    #             cmd=cmd,
+    #             stdout=True,
+    #             stderr=True,
+    #             stdin=True,
+    #             tty=True,
+    #             demux=True
+    #         )
+    #
+    #         try:
+    #             with self.Timeout(timeout_duration) as t:
+    #                 for line in stdout:
+    #                     output += line.decode("utf-8")
+    #                     # If no exit code yet, send CTRL+D
+    #                     if not exit_code:
+    #                         self.container_obj.exec_run(
+    #                             cmd="printf '\x04'",  # Sending EOF (CTRL+D)
+    #                             stdout=True,
+    #                             stderr=True,
+    #                             stdin=True,
+    #                             tty=True,
+    #                         )
+    #                     else:
+    #                         break
+    #
+    #             if not t.timed_out:
+    #                 exit_code = t.exit_code
+    #
+    #         except self.Timeout as e:
+    #             self.logger.error(f"Timeout after {timeout_duration}s: {e.error_message}")
+    #             exit_code = t.exit_code
+    #
+    #         return output, exit_code
+    #     except docker.errors.APIError as e:
+    #         # Add specific handling for exceptions if needed
+    #         self.logger.error(e)
+    #         return None, 1
+
     def _communicate(self, bash_command: str, timeout_duration=25, ) -> Tuple[str, int]:
         try:
             self.return_code = None
-            cmd = bash_command if bash_command.endswith("\n") else bash_command + "\n"
+            if bash_command.endswith("\n"):
+                cmd = bash_command
+            else:
+                cmd = bash_command + "\n"
+            self.logger.debug(f"Effective command sent to the development environment: {bash_command}.")
             os.write(self.container.stdin.fileno(), cmd.encode())
             time.sleep(0.1)
             self.container.stdin.flush()
@@ -98,13 +156,6 @@ class DockerCommunicationManagement:
             self.close()
         self.container = None
         self.container_obj = None
-        if hasattr(self, "container"):
-            try:
-                self.container.terminate()
-            except KeyboardInterrupt:
-                raise
-            except:
-                pass
         self._init_container()
         self._init_scripts()
 
@@ -122,9 +173,7 @@ class DockerCommunicationManagement:
             image_name_sanitized = self.image_name.replace("/", "-")
             image_name_sanitized = image_name_sanitized.replace(":", "-")
             self.container_name = f"{image_name_sanitized}-{hash_object.hexdigest()[:10]}"
-        self.container, self.parent_pids = get_container(container_name=self.container_name,
-                                                         image_name=self.image_name,
-                                                         persistent=self.persistent)
+        self.container, self.parent_pids = self.get_container()
         try:
             client = docker.from_env()
         except docker.errors.DockerException as e:
@@ -164,10 +213,13 @@ class DockerCommunicationManagement:
         try:
             self.exit_development_environment()
         except KeyboardInterrupt:
+            self.logger.info("Shutdown interrupted by keyboard.")
             raise
-        except:
-            pass
+        except Exception as e:
+            self.logger.error(f"An error occurred during shutdown: {str(e)}")
+
         self.container.terminate()
+
         if self.persistent:
             if self.container_obj.status not in {"paused", "exited"}:
                 self.container_obj.pause()
@@ -178,10 +230,12 @@ class DockerCommunicationManagement:
             try:
                 self.container_obj.remove(force=True)
             except KeyboardInterrupt:
+                self.logger.info("Shutdown interrupted by keyboard.")
                 raise
-            except:
-                pass
-            self.logger.info("Agent container stopped")
+            except Exception as e:
+                self.logger.error(f"An error occurred while removing the container: {str(e)}")
+
+        self.logger.info("Agent container stopped")
 
     def get_pids(self, all_pids=False) -> list[str]:
         """
@@ -210,7 +264,7 @@ class DockerCommunicationManagement:
         except TimeoutError:
             pass
         try:
-            output = self.communicate(bash_command="echo 'interrupted'", timeout_duration=5)
+            output, exit_code = self.communicate(bash_command="echo 'interrupted'", timeout_duration=5)
             assert output.strip().endswith("interrupted"), "container health check failed"
         except TimeoutError:
             raise RuntimeError("Failed to interrupt container")
@@ -247,3 +301,129 @@ class DockerCommunicationManagement:
         Returns list of available actions in current environment state
         """
         return []
+
+    def get_container(self) -> subprocess.Popen:
+        """
+        Get a container object for a given container name and image name
+
+        Arguments:
+            container_name (str): Name of container
+            image_name (str): Name of image
+            persistent (bool): Whether to use a persistent container or not
+        Returns:
+            Container object
+        """
+        if self.persistent:
+            return self._get_persistent_container()
+        else:
+            return self._get_non_persistent_container()
+
+    def _get_persistent_container(self) -> Tuple[subprocess.Popen, set]:
+        client = docker.from_env()
+        containers = client.containers.list(all=True, filters={"name": self.container_name})
+        if self.container_name in [c.name for c in containers]:
+            container_obj = client.containers.get(self.container_name)
+            if container_obj.status in {"created"}:
+                container_obj.start()
+            elif container_obj.status in {"running"}:
+                pass
+            elif container_obj.status in {"exited"}:
+                container_obj.restart()
+            elif container_obj.status in {"paused"}:
+                container_obj.unpause()
+            else:
+                raise RuntimeError(f"Unexpected container status: {container_obj.status}")
+        else:
+            container_obj = client.containers.run(
+                self.image_name,
+                command='/bin/bash -l -m',
+                name=self.container_name,
+                stdin_open=True,
+                tty=True,
+                detach=True,
+                auto_remove=not self.persistent,
+            )
+            container_obj.start()
+        startup_cmd = [
+            "docker",
+            "exec",
+            "-i",
+            self.container_name,
+            "/bin/bash",
+            "-l",
+            "-m",
+        ]
+        container = self.start_container(startup_cmd)
+        # Get the process IDs of the container
+        # There should be at least a head process and possibly one child bash process
+        bash_pids, other_pids = self.get_background_pids(container_obj)
+        bash_pid = 1
+        if len(bash_pids) == 1:
+            bash_pid = bash_pids[0][0]
+        elif len(bash_pids) > 1 or len(other_pids) > 0:
+            raise RuntimeError(f"Detected alien processes attached or running. Please ensure that no other agents are running on this container. PIDs: {bash_pids}, {other_pids}")
+        return container, set(map(str, [bash_pid, 1, ]))
+
+    def _get_non_persistent_container(self) -> Tuple[subprocess.Popen, set]:
+        startup_cmd = [
+            "docker",
+            "run",
+            "-i",
+            "--rm",
+            "--name",
+            self.container_name,
+            self.image_name,
+            "/bin/bash",
+            "-l",
+            "-m",
+        ]
+        container = self.start_container(startup_cmd)
+        return container, {"1", }  # bash PID is always 1 for non-persistent containers
+
+    def start_container(self, startup_cmd):
+        self.logger.debug(f"Starting container with command: %s", shlex.join(startup_cmd))
+        container = subprocess.Popen(
+            startup_cmd,
+            stdin=PIPE,
+            stdout=PIPE,
+            stderr=STDOUT,
+            text=True,
+            bufsize=1,  # line buffered
+        )
+        time.sleep(START_UP_DELAY)
+        # try to read output from container setup (usually an error), timeout if no output
+        try:
+            with self.Timeout(seconds=2):
+                output = container.stdout.read()
+                if output:
+                    self.logger.error(f"Unexpected container setup output: {output}")
+        except TimeoutError:
+            pass
+        return container
+
+    def get_background_pids(container_obj):
+        pids = (
+            container_obj.exec_run("ps -eo pid,comm --no-headers")
+            .output.decode()
+            .split("\n")
+        )
+        pids = [x.split() for x in pids if x]
+        pids = [x for x in pids if x[1] not in {"ps"} and x[0] != "1"]
+        bash_pids = [x for x in pids if x[1] == "bash"]
+        other_pids = [x for x in pids if x[1] not in {"bash"}]
+        return bash_pids, other_pids
+
+    class Timeout:
+        def __init__(self, seconds=TIMEOUT_DURATION, error_message="Timeout"):
+            self.seconds = seconds
+            self.error_message = error_message
+
+        def handle_timeout(self, signum, frame):
+            raise TimeoutError(self.error_message)
+
+        def __enter__(self):
+            signal.signal(signal.SIGALRM, self.handle_timeout)
+            signal.alarm(self.seconds)
+
+        def __exit__(self, type, value, traceback):
+            signal.alarm(0)

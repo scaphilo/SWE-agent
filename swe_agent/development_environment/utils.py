@@ -1,11 +1,8 @@
-import shlex
-import docker
 import json
 import logging
 import os
 import re
 import select
-import signal
 import subprocess
 import tarfile
 import tempfile
@@ -15,12 +12,9 @@ import traceback
 from datasets import load_dataset, load_from_disk
 from ghapi.all import GhApi
 from io import BytesIO
-from subprocess import PIPE, STDOUT
 from typing import List, Tuple, Dict
 
 LOGGER_NAME = "intercode"
-START_UP_DELAY = 5
-TIMEOUT_DURATION = 25
 GITHUB_ISSUE_URL_PATTERN = re.compile(r'github\.com\/(.*?)\/(.*?)\/issues\/(\d+)')
 
 logger = logging.getLogger(LOGGER_NAME)
@@ -118,157 +112,12 @@ def read_with_timeout(container, pid_func, timeout_duration):
     return buffer.decode()
 
 
-class timeout:
-    def __init__(self, seconds=TIMEOUT_DURATION, error_message="Timeout"):
-        self.seconds = seconds
-        self.error_message = error_message
-
-    def handle_timeout(self, signum, frame):
-        raise TimeoutError(self.error_message)
-
-    def __enter__(self):
-        signal.signal(signal.SIGALRM, self.handle_timeout)
-        signal.alarm(self.seconds)
-
-    def __exit__(self, type, value, traceback):
-        signal.alarm(0)
-
-
-def get_background_pids(container_obj):
-    pids = (
-        container_obj.exec_run("ps -eo pid,comm --no-headers")
-        .output.decode()
-        .split("\n")
-    )
-    pids = [x.split() for x in pids if x]
-    pids = [x for x in pids if x[1] not in {"ps"} and x[0] != "1"]
-    bash_pids = [x for x in pids if x[1] == "bash"]
-    other_pids = [x for x in pids if x[1] not in {"bash"}]
-    return bash_pids, other_pids
-
-
-def _get_non_persistent_container(ctr_name: str, image_name: str) -> Tuple[subprocess.Popen, set]:
-    startup_cmd = [
-        "docker",
-        "run",
-        "-i",
-        "--rm",
-        "--name",
-        ctr_name,
-        image_name,
-        "/bin/bash",
-        "-l",
-        "-m",
-    ]
-    logger.debug(f"Starting container with command: %s", shlex.join(startup_cmd))
-    container = subprocess.Popen(
-        startup_cmd,
-        stdin=PIPE,
-        stdout=PIPE,
-        stderr=STDOUT,
-        text=True,
-        bufsize=1, # line buffered
-    )
-    time.sleep(START_UP_DELAY)
-    # try to read output from container setup (usually an error), timeout if no output
-    try:
-        with timeout(seconds=2):
-            output = container.stdout.read()
-            if output:
-                logger.error(f"Unexpected container setup output: {output}")
-    except TimeoutError:
-        pass
-    return container, {"1", }  # bash PID is always 1 for non-persistent containers
-
-
-def _get_persistent_container(ctr_name: str, image_name: str, persistent: bool = False) -> Tuple[subprocess.Popen, set]:
-    client = docker.from_env()
-    containers = client.containers.list(all=True, filters={"name": ctr_name})
-    if ctr_name in [c.name for c in containers]:
-        container_obj = client.containers.get(ctr_name)
-        if container_obj.status in {"created"}:
-            container_obj.start()
-        elif container_obj.status in {"running"}:
-            pass
-        elif container_obj.status in {"exited"}:
-            container_obj.restart()
-        elif container_obj.status in {"paused"}:
-            container_obj.unpause()
-        else:
-            raise RuntimeError(f"Unexpected container status: {container_obj.status}")
-    else:
-        container_obj = client.containers.run(
-            image_name,
-            command='/bin/bash -l -m',
-            name=ctr_name,
-            stdin_open=True,
-            tty=True,
-            detach=True,
-            auto_remove=not persistent,
-        )
-        container_obj.start()
-    startup_cmd =  [
-        "docker",
-        "exec",
-        "-i",
-        ctr_name,
-        "/bin/bash",
-        "-l",
-        "-m",
-    ]
-    logger.debug(f"Starting container with command: %s", shlex.join(startup_cmd))
-    container = subprocess.Popen(
-        startup_cmd,
-        stdin=PIPE,
-        stdout=PIPE,
-        stderr=STDOUT,
-        text=True,
-        bufsize=1, # line buffered
-    )
-    time.sleep(START_UP_DELAY)
-    # try to read output from container setup (usually an error), timeout if no output
-    try:
-        with timeout(seconds=2):
-            output = container.stdout.read()
-            if output:
-                logger.error(f"Unexpected container setup output: {output}")
-    except TimeoutError:
-        pass
-    # Get the process IDs of the container
-    # There should be at least a head process and possibly one child bash process
-    bash_pids, other_pids = get_background_pids(container_obj)
-    bash_pid = 1
-    if len(bash_pids) == 1:
-        bash_pid = bash_pids[0][0]
-    elif len(bash_pids) > 1 or len(other_pids) > 0:
-        raise RuntimeError(f"Detected alien processes attached or running. Please ensure that no other agents are running on this container. PIDs: {bash_pids}, {other_pids}")
-    return container, set(map(str, [bash_pid, 1, ]))
-
-
-def get_container(container_name: str, image_name: str, persistent: bool = False) -> subprocess.Popen:
-    """
-    Get a container object for a given container name and image name
-
-    Arguments:
-        container_name (str): Name of container
-        image_name (str): Name of image
-        persistent (bool): Whether to use a persistent container or not
-    Returns:
-        Container object
-    """
-    if persistent:
-        return _get_persistent_container(container_name, image_name)
-    else:
-        return _get_non_persistent_container(container_name, image_name)
-
-
 def get_commit(api: GhApi, owner: str, repo: str, base_commit: str = None):
     if base_commit:
         commit = api.repos.get_commit(owner, repo, base_commit)
     else:
         commit = api.repos.list_commits(owner, repo)[0]
     return commit
-
 
 
 class InvalidGithubURL(ValueError):

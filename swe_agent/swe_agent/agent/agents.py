@@ -29,84 +29,93 @@ class Agent:
     def __init__(self, name: str, agent_arguments: AgentArguments):
         self.name = name
         self.config = agent_arguments.config
-        self.model_commands = self.config._commands + self.config.subroutine_types
+        self.model_commands = self.config.commands + self.config.subroutine_types
         self.model = get_model(model_arguments=agent_arguments.model,
-                               commands=self.model_commands )
-        self.system_args = {
+                               commands=self.model_commands)
+        self.system_arguments = {
             "command_docs": self.config.command_docs,
             **self.config.env_variables,
         }
-        self.instance_args = None
+        self.agent_setup_arguments = None
         self._parse_command_patterns()
         self.history = []
         self.last_container_id = None
 
-    def setup(self, instance_args, init_model_stats=None) -> None:
+    def setup(self, agent_setup_arguments: dict,
+              initial_model_api_statistics: APIStats = None) -> None:
         """Set up the agent for a new instance."""
-        self.model.reset_stats(init_model_stats)
-        self.instance_args = instance_args
-
-        system_msg = self.config.system_template.format(**self.system_args)
-        logger.info(f"SYSTEM ({self.name})\n{system_msg}")
-
+        self.model.reset_api_statistics(initial_model_api_statistics)
+        self.agent_setup_arguments = agent_setup_arguments
+        system_message = self.config.system_message_template.format(**self.system_arguments)
+        logger.info(f"SYSTEM ({self.name})\n{system_message}")
         self.history = [
-            {"role": "system", "content": system_msg, "agent": self.name},
+            {"role": "system", "content": system_message, "agent": self.name},
         ]
+        number_of_demonstrations = len(self.config.demonstrations)
+        model_has_function_history_to_message = "history_to_messages" in dir(self.model)
+        if number_of_demonstrations > 0 and model_has_function_history_to_message:
+            self.append_demonstrations_to_agent_history()
 
-        if len(self.config.demonstrations) > 0 and "history_to_messages" in dir(
-            self.model
-        ):
-            for demonstration_path in self.config.demonstrations:
-                if self.config.demonstration_template is None and not self.config.put_demos_in_history:
-                    raise ValueError("Cannot use demonstrations without a demonstration template or put_demos_in_history=True")
+    def append_demonstrations_to_agent_history(self):
+        for demonstration_path in self.config.demonstrations:
+            if self.config.demonstration_template is None and not self.config.put_demos_in_history:
+                raise ValueError(
+                    "Cannot use demonstrations without a demonstration template or put_demos_in_history=True")
+            # Load history
+            logger.info(f"DEMONSTRATION: {demonstration_path}")
+            history_entry_list = json.load(open(demonstration_path, "r"))["history"]
+            history_entry_list = self.remove_irrelevant_history_entries(history_entry_list)
 
-                # Load history
-                logger.info(f"DEMONSTRATION: {demonstration_path}")
-                demo_history = json.load(open(demonstration_path, "r"))["history"]
-                demo_history = [
-                    entry for entry in demo_history
-                    if ("agent" not in entry) or
-                    ("agent" in entry and entry["agent"] == self.name)
-                ]
+            if self.config.put_demos_in_history:
+                if self.config.demonstration_template is not None:
+                    logger.warning("Demonstration template is ignored for put_demos_in_history=True")
+                # Add demonstration to history directly as separate messages
+                for history_entry in history_entry_list:
+                    if history_entry["role"] != "system":
+                        history_entry["is_demo"] = True
+                        self.history.append(history_entry)
+            else:
+                # Add demonstration as single message to history
+                demo_message = self.model.history_to_messages(history_entry_list, is_demonstration=True, )
+                demonstration = self.config.demonstration_template.format(
+                    **{"demonstration": demo_message}
+                )
+                self.history.append({
+                    "agent": self.name,
+                    "content": demonstration,
+                    "is_demo": True,
+                    "role": "user",
+                })
 
-                if self.config.put_demos_in_history:
-                    if self.config.demonstration_template is not None:
-                        logger.warning("Demonstration template is ignored for put_demos_in_history=True")
-                    # Add demonstration to history directly as separate messages
-                    for entry in demo_history:
-                        if entry["role"] != "system":
-                            entry["is_demo"] = True
-                            self.history.append(entry)
-                else:
-                    # Add demonstration as single message to history
-                    demo_message = self.model.history_to_messages(
-                        demo_history,
-                        is_demonstration=True,
-                    )
-                    demonstration = self.config.demonstration_template.format(
-                        **{"demonstration": demo_message}
-                    )
-                    self.history.append({
-                        "agent": self.name,
-                        "content": demonstration,
-                        "is_demo": True,
-                        "role": "user",
-                    })
+    def remove_irrelevant_history_entries(self, raw_history_entry_list):
+        filtered_history_entry_list = []
+        for history_entry in raw_history_entry_list:
+            agent_in_history_entry = "agent" in history_entry
+            agent_in_history_same_name = history_entry["agent"] == self.name
+            if not agent_in_history_entry or (agent_in_history_entry and agent_in_history_same_name):
+                filtered_history_entry_list.append(history_entry)
+        return filtered_history_entry_list
 
     @property
-    def state_command(self) -> str:
+    def get_state_command(self) -> str:
         """Return the bash command that will be used to extract the environment state."""
-        return self.config.state_command.name
+        name_of_state_command = self.config.state_command.name
+        return name_of_state_command
     
     @property
     def local_history(self) -> list[dict[str, str]]:
         """Return the history of the agent since the last reset."""
-        return self.config.history_processor([entry for entry in self.history if entry["agent"] == self.name])
+        history_entry_list = []
+        for history_entry in self.history:
+            if history_entry["agent"] == self.name:
+                history_entry_list.append(history_entry)
+        local_history = self.config.history_processor(history_entry_list)
+        return local_history
 
-    def save_trajectory(self, trajectory, traj_dir,
+    def save_trajectory(self, trajectory, trajectory_path: Path,
                         env: DevelopmentEnvironment,
                         git_comm_env: GitCommunicationManagement, info):
-        log_path = traj_dir / (git_comm_env.record['instance_id'] + ".traj")
+        log_path = trajectory_path / (git_comm_env.record['instance_id'] + ".traj")
         log_dict = {
             "environment": env.name,
             "trajectory": trajectory,
@@ -202,7 +211,7 @@ class Agent:
     
     def _parse_command_patterns(self):
         self.command_patterns = dict()
-        for command in self.config._commands:
+        for command in self.config.commands:
             if command.end_name is not None:
                 pat = re.compile(fr'^\s*({command.name})\s*(.*?)^({command.end_name})\s*$', re.DOTALL | re.MULTILINE)
                 self.command_patterns[command.name] = pat
@@ -228,22 +237,22 @@ class Agent:
                 previous_commandline_response: str,
                 available_actions: list[str],
                 container_state: str) -> Tuple[str, str, str]:
-        thought, action, output = self.forward_with_error_check(previous_commandline_response=previous_commandline_response,
-                                                                container_state=container_state)
+        model_thought, model_action, model_output = self.forward_with_error_check(previous_commandline_response=previous_commandline_response,
+                                                                                  container_state=container_state)
 
         self.history.append(
             {"role": "assistant",
-             "content": output,
-             "thought": thought,
-             "action": action,
+             "content": model_output,
+             "thought": model_thought,
+             "action": model_action,
              "agent": self.name,
              }
         )
 
-        logger.info(f"💭 THOUGHT ({self.name})\n{thought}")
-        logger.info(f"🎬 ACTION ({self.name})\n{action}")
+        logger.info(f"💭 THOUGHT ({self.name})\n{model_thought}")
+        logger.info(f"🎬 ACTION ({self.name})\n{model_action}")
 
-        return thought, action, output
+        return model_thought, model_action, model_output
 
     def forward_model(self, observation: str, state: str) -> str:
         """Query the model with the current state and observation with the appropriate template.
@@ -271,8 +280,8 @@ class Agent:
         for template in templates:
             messages.append(
                 template.format(
-                    **self.instance_args,
-                    **self.system_args,
+                    **self.agent_setup_arguments,
+                    **self.system_arguments,
                     **state_vars,
                     observation=(observation if observation is not None else ""),
                 )
@@ -333,12 +342,12 @@ class Agent:
         if self.model.model_arguments.model_name == "human":
             return "", model_output, model_output
         elif self.model.model_arguments.model_name == "human_thought":
-            thought, action = ParseFunction.get("ThoughtActionParser")(
+            model_thought, model_action = ParseFunction.get("ThoughtActionParser")(
                 model_output,
-                self.config._commands + self.config.subroutine_types,
+                self.config.commands + self.config.subroutine_types,
                 strict=False,
             )
-            return thought, action, model_output
+            return model_thought, model_action, model_output
 
         format_fails = 0
         blocklist_fails = 0
@@ -346,8 +355,8 @@ class Agent:
         while format_fails + blocklist_fails <= 2:
             try:
                 thought, action = self.config.parse_function(model_output,
-                                                             self.config._commands + self.config.subroutine_types,
-                                                             strict=False,)
+                                                             self.config.commands + self.config.subroutine_types,
+                                                             strict=False, )
             except KeyboardInterrupt:
                 raise
             except FormatError as e:
@@ -389,8 +398,8 @@ class Agent:
                 "exit_api",
                 f"exit due to retry error: {e}",
             )
-        agent_output = self.check_format_and_requery(model_output)
-        return agent_output
+        model_thought, model_action, model_output = self.check_format_and_requery(model_output)
+        return model_thought, model_action, model_output
     
     def init_environment_vars(self, docker_comm_mgmt: DockerCommunicationManagement):
         self.set_environment_vars(docker_comm_mgmt, self.config.env_variables)
@@ -408,10 +417,10 @@ class Agent:
             if exit_code != 0:
                 raise RuntimeError(f"Nonzero return code: {docker_comm_mgmt.return_code}\nOutput: {output}")
         except KeyboardInterrupt:
-                raise
+            raise
         except Exception as e:
-                logger.warning("Failed to set environment variables")
-                raise e
+            logger.warning("Failed to set environment variables")
+            raise e
         command_files = list()
         for file in self.config.command_files:
             command_file = dict()
@@ -464,18 +473,18 @@ class Agent:
             env,
             previous_commandline_response=obs,
             return_type=return_type,
-            init_model_stats=self.model.stats,)
+            init_model_stats=self.model.api_statistics,)
         self.history += sub_agent.history
         self.set_environment_vars(env, env_vars)
         env.communicate(f"cd {cwd}")
-        self.model.stats.replace(sub_agent.model.stats)
+        self.model.api_statistics.replace(sub_agent.model.api_statistics)
         return sub_agent_output
 
     def run(self,
-            agent_setup_arguments,
+            agent_setup_arguments: dict,
             development_environment: DevelopmentEnvironment,
             previous_commandline_response: str = None,
-            trajectory_directory: Optional[Path] = None,
+            trajectory_path: Optional[Path] = None,
             return_type: Optional[str] = "info",
             init_model_stats: Optional[APIStats] = None,):
         """
@@ -490,25 +499,23 @@ class Agent:
             self.init_environment_vars(docker_env)
             self.last_container_id = docker_env.container_obj.id
         # Re-initialize primary
-        self.setup(agent_setup_arguments, init_model_stats)
+        self.setup(agent_setup_arguments=agent_setup_arguments,
+                   initial_model_api_statistics=init_model_stats)
 
         # Run action/observation loop
         trajectory = []
-        info = {}
+        agent_infos = {}
         while not done:
-            if self.state_command:
-                container_state, exit_code = docker_env.communicate(bash_command=self.state_command)
-            else:
-                container_state = None
+            container_state, exit_code = docker_env.communicate(bash_command=self.get_state_command)
             available_actions = docker_env.get_available_actions()
-            thought, action, output = self.forward(previous_commandline_response=previous_commandline_response,
-                                                   available_actions=available_actions,
-                                                   container_state=container_state)
+            model_thought, model_action, model_output = self.forward(previous_commandline_response=previous_commandline_response,
+                                                                     available_actions=available_actions,
+                                                                     container_state=container_state)
             new_commandline_response_list = list()
-            run_action = self._guard_multiline_input(action)
+            run_action = self._guard_multiline_input(model_action)
             for sub_action in self.split_actions(run_action):
                 if sub_action['agent'] == self.name or sub_action['cmd_name'] == self.config.submit_command:
-                    new_commandline_response_element, _, done, info = development_environment.step(sub_action['action'])
+                    new_commandline_response_element, _, done, agent_infos = development_environment.step(sub_action['action'])
                     new_commandline_response_list.append(new_commandline_response_element)
                     if sub_action['cmd_name'] == self.config.submit_command:
                         done = True
@@ -526,25 +533,25 @@ class Agent:
 
             trajectory.append(
                 {
-                    "action": action,
+                    "action": model_action,
                     "observation": new_commandline_response,
-                    "response": output,
+                    "response": model_output,
                     "state": container_state,
-                    "thought": thought,
+                    "thought": model_thought,
                 }
             )
-            info['model_stats'] = self.model.stats.to_dict()
-            if trajectory_directory:
-                self.save_trajectory(trajectory,
-                                     trajectory_directory,
+            agent_infos['model_api_statistics'] = self.model.api_statistics.to_dict()
+            if trajectory_path:
+                self.save_trajectory(trajectory=trajectory,
+                                     trajectory_path=trajectory_path,
                                      env=development_environment,
                                      git_comm_env=git_comm_env,
-                                     info=info)
+                                     info=agent_infos)
 
             previous_commandline_response = new_commandline_response  # Prepare next loop for agent
         if return_type == "info":
-            return info
+            return agent_infos
         if return_type == "info_trajectory":
-            return info, trajectory
+            return agent_infos, trajectory
         if return_type != "info":
             return trajectory[-1][return_type]

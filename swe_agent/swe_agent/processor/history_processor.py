@@ -22,7 +22,7 @@ class HistoryProcessor(metaclass=HistoryProcessorMeta):
         raise NotImplementedError
 
     @classmethod
-    def get(cls, name, *args, **kwargs):
+    def get(cls, name: str, *args, **kwargs):
         try:
             return cls._registry[name](*args, **kwargs)
         except KeyError:

@@ -202,7 +202,7 @@ class GitCommunicationManagement:
                     timeout_duration=self.timeout,
                 )
             else:
-                self.logger.info(f"Trying to clone from non-mirror...")
+                self.logger.info(f"Clone repository from Github...")
                 self.docker_communication.communicate_with_handling(
                     bash_command=f"git clone https://{self.github_token}@github.com/{self.record['repo']}.git {repo_name}",
                     error_msg="Failed to clone repository from non-mirror",
