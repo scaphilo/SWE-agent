@@ -15,16 +15,16 @@ START_UP_DELAY = 5
 TIMEOUT_DURATION = 25
 
 
-class DockerCommunicationManagement:
+class DockerCommunicationInterface:
     def __init__(self, image_name, container_name, logger):
         self.logger = logger
         self.container_name = container_name
         self.image_name = image_name
+        self.return_code = None
         self.container = None
         self.container_obj = None
         self.persistent = container_name is not None
         self.reset_container()
-        self.return_code = None
 
     def get_container_obj(self):
         return self.container_obj

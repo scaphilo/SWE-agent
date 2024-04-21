@@ -11,13 +11,14 @@ from swe_agent.swe_agent.model.models import (
     get_model,
 )
 from swe_agent.swe_agent.model.model_apistats import APIStats
-from swe_agent.swe_agent.parsing import ParseFunction, FormatError
+from swe_agent.swe_agent.prompt_parser.thought_action_prompt_parser import ThoughtActionPromptParser
+from swe_agent.swe_agent.prompt_parser.prompt_parser import PromptParserFormatError
 from swe_agent.development_environment.utils import LOGGER_NAME
-from swe_agent.development_environment.git_communication_management import GitCommunicationManagement
-from swe_agent.development_environment.docker_communication_management import  DockerCommunicationManagement
+from swe_agent.development_environment.git_communication_interface import GitCommunicationInterface
+from swe_agent.development_environment.docker_communication_interface import  DockerCommunicationInterface
 from swe_agent.development_environment.development_environment import DevelopmentEnvironment
 from tenacity import RetryError
-from typing import Optional, Tuple
+from typing import Optional
 
 logger = logging.getLogger(LOGGER_NAME)
 
@@ -29,7 +30,7 @@ class Agent:
     def __init__(self, name: str, agent_arguments: AgentArguments):
         self.name = name
         self.config = agent_arguments.config
-        self.model_commands = self.config.commands + self.config.subroutine_types
+        self.model_commands = self.config._commands + self.config.subroutine_types
         self.model = get_model(model_arguments=agent_arguments.model,
                                commands=self.model_commands)
         self.system_arguments = {
@@ -102,20 +103,19 @@ class Agent:
         name_of_state_command = self.config.state_command.name
         return name_of_state_command
     
-    @property
-    def local_history(self) -> list[dict[str, str]]:
+    def get_overall_history(self) -> list[dict[str, str]]:
         """Return the history of the agent since the last reset."""
         history_entry_list = []
         for history_entry in self.history:
             if history_entry["agent"] == self.name:
                 history_entry_list.append(history_entry)
-        local_history = self.config.history_processor(history_entry_list)
-        return local_history
+        overall_history = self.config.history_processor(history_entry_list)
+        return overall_history
 
     def save_trajectory(self, trajectory, trajectory_path: Path,
                         env: DevelopmentEnvironment,
-                        git_comm_env: GitCommunicationManagement, info):
-        log_path = trajectory_path / (git_comm_env.record['instance_id'] + ".traj")
+                        git_comm_env: GitCommunicationInterface, info):
+        log_path = trajectory_path / (git_comm_env.get_repository_details_dict()['instance_id'] + ".traj")
         log_dict = {
             "environment": env.name,
             "trajectory": trajectory,
@@ -211,7 +211,7 @@ class Agent:
     
     def _parse_command_patterns(self):
         self.command_patterns = dict()
-        for command in self.config.commands:
+        for command in self.config._commands:
             if command.end_name is not None:
                 pat = re.compile(fr'^\s*({command.name})\s*(.*?)^({command.end_name})\s*$', re.DOTALL | re.MULTILINE)
                 self.command_patterns[command.name] = pat
@@ -233,12 +233,11 @@ class Agent:
         self.subroutine_patterns[self.config.submit_command] = submit_pat
         self.command_patterns[self.config.submit_command] = submit_pat
 
-    def forward(self,
-                previous_commandline_response: str,
-                available_actions: list[str],
-                container_state: str) -> Tuple[str, str, str]:
-        model_thought, model_action, model_output = self.forward_with_error_check(previous_commandline_response=previous_commandline_response,
-                                                                                  container_state=container_state)
+    def run_model(self,
+                  previous_commandline_response: str,
+                  container_state: str) -> tuple[str, str, str]:
+        model_thought, model_action, model_output = self.run_model_with_error_correction(previous_commandline_response=previous_commandline_response,
+                                                                                         container_state=container_state)
 
         self.history.append(
             {"role": "assistant",
@@ -254,7 +253,7 @@ class Agent:
 
         return model_thought, model_action, model_output
 
-    def forward_model(self, observation: str, state: str) -> str:
+    def run_model_and_append_to_history(self, observation: str, state: str) -> str:
         """Query the model with the current state and observation with the appropriate template.
 
         Returns the model output."""
@@ -288,11 +287,11 @@ class Agent:
             )
 
         message = "\n".join(messages)
-
         logger.info(f"🤖 MODEL INPUT\n{message}")
         self.history.append({"role": "user", "content": message, "agent": self.name})
-
-        return self.model.query(self.local_history)
+        model_input = self.get_overall_history()
+        model_output = self.model.query(model_input)
+        return model_output
 
     def retry_after_format_fail(self, output):
         """Ask the model to correct (without committing to persistent history) after a malformatted model output"""
@@ -301,7 +300,7 @@ class Agent:
         logger.warning(f"MALFORMED OUTPUT\n{output}")
         logger.warning(f"FORMAT ERROR\n{format_error_template}")
 
-        temp_history = self.local_history + [
+        temp_history = self.get_overall_history() + [
             {"role": "assistant", "content": output, "agent": self.name},
             {"role": "user", "content": format_error_template, "agent": self.name},
         ]
@@ -315,7 +314,7 @@ class Agent:
         logger.warning(f"BLOCKLISTED OUTPUT\n{output}")
         logger.warning(f"BLOCKLIST ERROR\n{blocklist_error_message}")
 
-        temp_history = self.local_history + [
+        temp_history = self.get_overall_history() + [
             {"role": "assistant", "content": output, "agent": self.name},
             {"role": "user", "content": blocklist_error_message, "agent": self.name},
         ]
@@ -333,7 +332,7 @@ class Agent:
             return True
         return False
 
-    def check_format_and_requery(self, model_output: str) -> Tuple[str, str, str]:
+    def check_format_and_requery(self, model_output: str) -> tuple[str, str, str]:
         """Query the model with the current state and observation with the appropriate template.
         Try to parse the output into a thought and action. Retry if the output is malformatted or the action is blocked.
         Returns the thought, action, and raw model output.
@@ -342,11 +341,9 @@ class Agent:
         if self.model.model_arguments.model_name == "human":
             return "", model_output, model_output
         elif self.model.model_arguments.model_name == "human_thought":
-            model_thought, model_action = ParseFunction.get("ThoughtActionParser")(
-                model_output,
-                self.config.commands + self.config.subroutine_types,
-                strict=False,
-            )
+            model_thought, model_action = ThoughtActionPromptParser()(model_output,
+                                                                      self.config._commands + self.config.subroutine_types,
+                                                                      strict=False,)
             return model_thought, model_action, model_output
 
         format_fails = 0
@@ -354,12 +351,12 @@ class Agent:
 
         while format_fails + blocklist_fails <= 2:
             try:
-                thought, action = self.config.parse_function(model_output,
-                                                             self.config.commands + self.config.subroutine_types,
-                                                             strict=False, )
+                thought, action = ThoughtActionPromptParser()(model_output,
+                                                              self.config._commands + self.config.subroutine_types,
+                                                              strict=False, )
             except KeyboardInterrupt:
                 raise
-            except FormatError as e:
+            except PromptParserFormatError as e:
                 format_fails += 1
                 model_output = self.retry_after_format_fail(model_output)
                 continue
@@ -371,11 +368,11 @@ class Agent:
         logger.warning(f"Malformat limit reached: \n{model_output}")
         return "Exit due to format error", "exit_format", model_output
 
-    def forward_with_error_check(self,
-                                 previous_commandline_response: str,
-                                 container_state: str) -> Tuple[str, str, str]:
+    def run_model_with_error_correction(self,
+                                        previous_commandline_response: str,
+                                        container_state: str) -> tuple[str, str, str]:
         try:
-            model_output = self.forward_model(previous_commandline_response, container_state)
+            model_output = self.run_model_and_append_to_history(previous_commandline_response, container_state)
         except KeyboardInterrupt:
             raise
         except RuntimeError as e:
@@ -401,10 +398,10 @@ class Agent:
         model_thought, model_action, model_output = self.check_format_and_requery(model_output)
         return model_thought, model_action, model_output
     
-    def init_environment_vars(self, docker_comm_mgmt: DockerCommunicationManagement):
+    def init_environment_vars(self, docker_comm_mgmt: DockerCommunicationInterface):
         self.set_environment_vars(docker_comm_mgmt, self.config.env_variables)
 
-    def set_environment_vars(self, docker_comm_mgmt: DockerCommunicationManagement, env_variables):
+    def set_environment_vars(self, docker_comm_mgmt: DockerCommunicationInterface, env_variables):
         commands_to_execute = (
             [self.config.state_command.code] +
             # [code for code in self.config.util_functions] +
@@ -492,12 +489,12 @@ class Agent:
         Return the final value of the specified return type.
         """
         done = False
-        docker_env = development_environment.get_docker_communication()
-        git_comm_env = development_environment.get_git_communication_management()
-        if docker_env.get_container_obj().id != self.last_container_id:
-            logger.info(f"Initializing agent settings for container {docker_env.get_container_obj().id}")
-            self.init_environment_vars(docker_env)
-            self.last_container_id = docker_env.container_obj.id
+        docker_communication_interface = development_environment.get_docker_communication_interface()
+        git_communication_interface = development_environment.get_git_communication_interface()
+        if docker_communication_interface.get_container_obj().id != self.last_container_id:
+            logger.info(f"Initializing agent settings for container {docker_communication_interface.get_container_obj().id}")
+            self.init_environment_vars(docker_communication_interface)
+            self.last_container_id = docker_communication_interface.container_obj.id
         # Re-initialize primary
         self.setup(agent_setup_arguments=agent_setup_arguments,
                    initial_model_api_statistics=init_model_stats)
@@ -506,11 +503,9 @@ class Agent:
         trajectory = []
         agent_infos = {}
         while not done:
-            container_state, exit_code = docker_env.communicate(bash_command=self.get_state_command)
-            available_actions = docker_env.get_available_actions()
-            model_thought, model_action, model_output = self.forward(previous_commandline_response=previous_commandline_response,
-                                                                     available_actions=available_actions,
-                                                                     container_state=container_state)
+            container_state, exit_code = docker_communication_interface.communicate(bash_command=self.get_state_command)
+            model_thought, model_action, model_output = self.run_model(previous_commandline_response=previous_commandline_response,
+                                                                       container_state=container_state)
             new_commandline_response_list = list()
             run_action = self._guard_multiline_input(model_action)
             for sub_action in self.split_actions(run_action):
@@ -523,7 +518,7 @@ class Agent:
                         break
                 else:
                     agent_name = sub_action['agent']
-                    sub_agent_output = self.call_subroutine(agent_name, sub_action, docker_env)
+                    sub_agent_output = self.call_subroutine(agent_name, sub_action, docker_communication_interface)
                     new_commandline_response_list.append(sub_agent_output)
 
             new_commandline_response = ""
@@ -545,7 +540,7 @@ class Agent:
                 self.save_trajectory(trajectory=trajectory,
                                      trajectory_path=trajectory_path,
                                      env=development_environment,
-                                     git_comm_env=git_comm_env,
+                                     git_comm_env=git_communication_interface,
                                      info=agent_infos)
 
             previous_commandline_response = new_commandline_response  # Prepare next loop for agent

@@ -4,7 +4,6 @@ from typing import Optional, Any
 from simple_parsing.helpers import FrozenSerializable
 
 
-
 @dataclass(frozen=True)
 class AgentSubroutine(FrozenSerializable):
     name: str

@@ -154,7 +154,7 @@ def get_gh_issue_data(issue_url: str, *, token: str = ""):
     return api.issues.get(owner, repo, issue_number)
 
 
-def fetch_github_issue_details(github_issue_url: str, base_commit: str = None, token: str = None) -> list:
+def fetch_github_issue_details(github_issue_url: str, base_commit: str = None, token: str = None) -> dict:
     """
     Fetches the GitHub issue details and constructs an instance.
 
@@ -167,23 +167,24 @@ def fetch_github_issue_details(github_issue_url: str, base_commit: str = None, t
         list: A list containing the constructed instance.
     """
 
+    gitlab_details_dict = dict()
     try:
         owner, repo, issue_number = parse_gh_issue_url(github_issue_url)
     except InvalidGithubURL:
         pass
     else:
-        record = dict()
         api = GhApi(token=token)
         issue = api.issues.get(owner, repo, issue_number)
         title = issue.title if issue.title else ""
         body = issue.body if issue.body else ""
         text = f"{title}\n{body}\n"
-        record["repo"] = f"{owner}/{repo}"
-        record["base_commit"] = base_commit if base_commit else get_commit(api, owner, repo, base_commit).sha
-        record["version"] = record["base_commit"][:7]
-        record["problem_statement"] = text
-        record["instance_id"] = f"{owner}__{repo}-i{issue_number}"
-    return [record,]
+        gitlab_details_dict["repo"] = f"{owner}/{repo}"
+        gitlab_details_dict["base_commit"] = base_commit if base_commit else get_commit(api, owner, repo, base_commit).sha
+        gitlab_details_dict["version"] = gitlab_details_dict["base_commit"][:7]
+        gitlab_details_dict["problem_statement"] = text
+        gitlab_details_dict["instance_id"] = f"{owner}__{repo}-i{issue_number}"
+    return gitlab_details_dict
+
 
 def load_dataset_from_directory(file_path: str, split: str = None) -> dict:
     """
@@ -203,6 +204,7 @@ def load_dataset_from_directory(file_path: str, split: str = None) -> dict:
         if isinstance(dataset_or_dict, dict):
             return dataset_or_dict[split]
         return dataset_or_dict
+
 
 def load_huggingface_dataset(file_path: str, base_commit: str = None, split: str = None) -> dict:
     """

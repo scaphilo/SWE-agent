@@ -22,7 +22,7 @@ class BashCommandParser(CommandParser):
                     "If you want to use a non-shell file as a command (script), "
                     "it should use a shebang (e.g. #!/usr/bin/env python)."
                     ))
-            return self.parse_bash_functions(path, contents)
+            return self.parse_bash_functions(contents)
         if len(commands) == 0 and not Path(path).name.startswith("_"):
             raise ValueError((
                 f"Non-shell file {path} does not contain any commands.\n"
@@ -34,7 +34,8 @@ class BashCommandParser(CommandParser):
         else:
             return commands
 
-    def parse_bash_functions(self, path, contents) -> List[Command]:
+    @staticmethod
+    def parse_bash_functions(contents) -> List[Command]:
         """
         Simple logic for parsing a bash file and segmenting it into functions.
 
@@ -84,7 +85,8 @@ class BashCommandParser(CommandParser):
                 docs = []
         return commands
 
-    def parse_script(self, path, contents) -> List[Command]:
+    @staticmethod
+    def parse_script(path, contents) -> List[Command]:
         pattern = re.compile(r'^#\s*@yaml\s*\n^#.*(?:\n#.*)*', re.MULTILINE)
         matches = pattern.findall(contents)
         if len(matches) == 0:
@@ -120,7 +122,6 @@ class BashCommandParser(CommandParser):
                 "arguments": arguments,
                 "signature": signature
             })]
-
 
     def generate_command_docs(self, commands: List[Command], subroutine_types, **kwargs) -> str:
         docs = ""

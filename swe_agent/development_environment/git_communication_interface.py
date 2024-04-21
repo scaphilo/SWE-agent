@@ -11,7 +11,7 @@ from swe_agent.development_environment.utils import (get_gh_issue_data, parse_gh
                                                      format_trajectory_markdown, copy_file_to_container,
                                                      fetch_github_issue_details, load_dataset_from_directory,
                                                      UndefinedSourcecodeRepositoryType, load_huggingface_dataset)
-from swe_agent.development_environment.docker_communication_management import DockerCommunicationManagement
+from swe_agent.development_environment.docker_communication_interface import DockerCommunicationInterface
 
 from swebench import (
     get_environment_yml,
@@ -22,7 +22,7 @@ PATH_TO_REQUIREMENTS = "/root/requirements.txt"
 PATH_TO_ENV_YML = "/root/environment.yml"
 
 
-class GitCommunicationManagement:
+class GitCommunicationInterface:
     def __init__(self,
                  sourcecode_repository_path: str,
                  sourcecode_repository_type: str,
@@ -30,7 +30,7 @@ class GitCommunicationManagement:
                  logger,
                  install_python_environment,
                  no_mirror,
-                 docker_communication: 'DockerCommunicationManagement',
+                 docker_communication: 'DockerCommunicationInterface',
                  timeout: int):
         self.docker_communication = docker_communication
         self.task_count = 0
@@ -59,30 +59,26 @@ class GitCommunicationManagement:
             self.cfg = config.Config(os.path.join(os.getcwd(), "keys.cfg"))
             self.github_token = self.cfg.get("GITHUB_TOKEN", "git")
         if self.sourcecode_repository_type == "Github":
-            self.path_to_sourcecode_repository = fetch_github_issue_details(github_issue_url=sourcecode_repository_path,
-                                                                            base_commit=self.base_commit,
-                                                                            token=self.github_token)
+            self.repository_details_dict = fetch_github_issue_details(github_issue_url=sourcecode_repository_path,
+                                                                      base_commit=self.base_commit,
+                                                                      token=self.github_token)
         elif self.sourcecode_repository_type == "File":
-            self.path_to_sourcecode_repository = load_dataset_from_directory(file_path=self.sourcecode_repository_path,
-                                                                             split=self.split)
+            self.repository_details_dict = load_dataset_from_directory(file_path=self.sourcecode_repository_path,
+                                                                       split=self.split)
         elif self.sourcecode_repository_type == "Huggingface":
-            self.path_to_sourcecode_repository = load_huggingface_dataset(file_path=sourcecode_repository_path,
-                                                                          base_commit=self.base_commit,
-                                                                          split=self.split)
+            self.repository_details_dict = load_huggingface_dataset(file_path=sourcecode_repository_path,
+                                                                    base_commit=self.base_commit,
+                                                                    split=self.split)
         else:
             raise UndefinedSourcecodeRepositoryType("The Sourcecode Repository Type: %s does not exist"
                                                     .format(self.sourcecode_repository_type))
-        self.record = self.path_to_sourcecode_repository[self.task_count]
         self.logger.info(f"💽 Loaded dataset from {self.sourcecode_repository_path}")
 
-    def get_path_to_sourcecode_repository(self):
-        return self.path_to_sourcecode_repository
+    def get_issue_description(self):
+        return self.issue_description
 
-    def get_query(self):
-        return self.query
-
-    def get_record(self):
-        return self.record
+    def get_repository_details_dict(self):
+        return self.repository_details_dict
 
     def get_token(self):
         return self.github_token
@@ -183,16 +179,14 @@ class GitCommunicationManagement:
         self.task_count += 1
 
         # Set query, gold command
-        self.base_commit = self.record["base_commit"]
-        self.query = self.record["problem_statement"]
+        self.base_commit = self.repository_details_dict["base_commit"]
+        self.issue_description = self.repository_details_dict["problem_statement"]
         self.reward = None
-
-        ### Reset Container ###
 
         # Clone repository if not already cloned
         self.docker_communication.communicate(bash_command="cd /")
         folders = self.docker_communication.communicate(bash_command="ls")[0].split("\n")
-        repo_name = self.record["repo"].replace("/", "__")
+        repo_name = self.repository_details_dict["repo"].replace("/", "__")
         if repo_name not in folders:
             if not self.no_mirror and not self.sourcecode_repository_type == "Github":
                 self.logger.info(f"{repo_name} not found in container, cloning...")
@@ -204,7 +198,7 @@ class GitCommunicationManagement:
             else:
                 self.logger.info(f"Clone repository from Github...")
                 self.docker_communication.communicate_with_handling(
-                    bash_command=f"git clone https://{self.github_token}@github.com/{self.record['repo']}.git {repo_name}",
+                    bash_command=f"git clone https://{self.github_token}@github.com/{self.repository_details_dict['repo']}.git {repo_name}",
                     error_msg="Failed to clone repository from non-mirror",
                     timeout_duration=self.timeout,
                 )
@@ -271,7 +265,7 @@ class GitCommunicationManagement:
         if apply_test_patch:
             path_to_patch = "test.patch"
             with open(path_to_patch, "w") as f:
-                f.write(self.record["test_patch"])
+                f.write(self.repository_details_dict["test_patch"])
             subprocess.run(
                 f"docker cp {path_to_patch} {self.docker_communication.get_container_name()}:/root/test.patch",
                 shell=True,
@@ -288,14 +282,14 @@ class GitCommunicationManagement:
         """
         Creates conda environment and installs third party dependencies to allow code execution
         """
-        repo_name = self.record["repo"].replace("/", "__")
+        repo_name = self.repository_details_dict["repo"].replace("/", "__")
         # Create environment if does not exist yet
-        env_name = f"{repo_name}__{self.record['version']}"
+        env_name = f"{repo_name}__{self.repository_details_dict['version']}"
         env_check = self.docker_communication.communicate(
             f"conda env list | grep {env_name}", timeout_duration=self.timeout
         )
-        install_configs = MAP_VERSION_TO_INSTALL[self.record["repo"]][
-            str(self.record["version"])
+        install_configs = MAP_VERSION_TO_INSTALL[self.repository_details_dict["repo"]][
+            str(self.repository_details_dict["version"])
         ]
         if env_check[0].strip() == "":
             self.logger.info(f"{env_name} conda env not found, creating...")
@@ -310,7 +304,7 @@ class GitCommunicationManagement:
                     timeout_duration=self.timeout,
                 )
                 # Write reqs to requirements.txt in docker container
-                content_reqs = get_requirements(self.record)
+                content_reqs = get_requirements(self.repository_details_dict)
                 copy_file_to_container(self.docker_communication.get_container_obj(), content_reqs, PATH_TO_REQUIREMENTS)
                 # Create conda environment + install reqs
                 self.docker_communication.communicate_with_handling(
@@ -325,7 +319,7 @@ class GitCommunicationManagement:
                 self.docker_communication.communicate(f"rm {PATH_TO_REQUIREMENTS}")
             elif packages == "environment.yml":
                 # Write environment.yml to file
-                content_env_yml = get_environment_yml(self.record, env_name)
+                content_env_yml = get_environment_yml(self.repository_details_dict, env_name)
                 copy_file_to_container(self.docker_communication.get_container_obj(), content_env_yml, PATH_TO_ENV_YML)
                 if "no_use_env" in install_configs and install_configs["no_use_env"]:
                     # Create conda environment

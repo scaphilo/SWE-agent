@@ -17,9 +17,9 @@ from swe_agent import DevelopmentEnvironmentArguments
 from swe_agent.development_environment.development_environment import DevelopmentEnvironment
 
 handler = RichHandler(show_time=False, show_path=False)
-handler.setLevel(logging.DEBUG)
+handler.setLevel(logging.INFO)
 logger = logging.getLogger("run_dev")
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 logger.propagate = False
 logging.getLogger("simple_parsing").setLevel(logging.WARNING)
@@ -27,44 +27,42 @@ logging.getLogger("simple_parsing").setLevel(logging.WARNING)
 
 def main(application_arguments: ApplicationArguments):
     application = Application(application_arguments, logger)
-    logger.info(f"📙 Arguments: {application_arguments.dumps_yaml()}")
+    logger.info(f"📙 Application starts with following Arguments: {application_arguments.dumps_yaml()}")
     agent = Agent(name="primary", agent_arguments=application_arguments.agent)
     development_environment = DevelopmentEnvironment(application_arguments.development_environment_arguments)
     application.create_trajectory_directory()
     application.save_arguments()
 
-    for task_count in range(len(development_environment.get_git_communication_management().get_path_to_sourcecode_repository())):
+    for task_count in range(len(development_environment.get_git_communication_interface().get_repository_details_dict())):
         try:
             # Reset environment
-            instance_id = development_environment.get_git_communication_management().get_path_to_sourcecode_repository()[task_count]["instance_id"]
+            instance_id = development_environment.get_git_communication_interface().get_repository_details_dict()["instance_id"]
             if application.should_skip(instance_id):
                 continue
-            logger.info("▶️ Beginning task " + str(task_count))
-
+            logger.info("▶️ Application begins with task " + str(task_count))
             reset_commandline_response, agent_infos = development_environment.reset(task_count)
             if agent_infos is None:
                 continue
 
             # Get info, patch information
-            issue = development_environment.get_git_communication_management().get_query()
             files = []
-            if "patch" in development_environment.get_git_communication_management().get_record():
+            if "patch" in development_environment.get_git_communication_interface().get_repository_details_dict()["problem_statement"]:
                 files = "\n".join(
-                    [f"- {x.path}" for x in PatchSet(development_environment.get_git_communication_management().get_record()["patch"]).modified_files]
+                    [f"- {x.path}" for x in PatchSet(development_environment.get_git_communication_interface().get_repository_details_dict()["patch"]).modified_files]
                 )
             # Get test files, F2P tests information
             test_files = []
-            if "test_patch" in development_environment.get_git_communication_management().get_record():
-                test_patch_obj = PatchSet(development_environment.get_git_communication_management().get_record()["test_patch"])
+            if "test_patch" in development_environment.get_git_communication_interface().get_repository_details_dict():
+                test_patch_obj = PatchSet(development_environment.get_git_communication_interface().get_repository_details_dict()["test_patch"])
                 test_files = "\n".join(
                     [f"- {x.path}" for x in test_patch_obj.modified_files + test_patch_obj.added_files]
                 )
             tests = ""
-            if "FAIL_TO_PASS" in development_environment.get_git_communication_management().get_record():
-                tests = "\n".join([f"- {x}" for x in development_environment.get_git_communication_management().get_record()["FAIL_TO_PASS"]])
+            if "FAIL_TO_PASS" in development_environment.get_git_communication_interface().get_repository_details_dict():
+                tests = "\n".join([f"- {x}" for x in development_environment.get_git_communication_interface().get_repository_details_dict()["FAIL_TO_PASS"]])
 
             agent_setup_arguments = {
-                "issue": issue,
+                "issue": development_environment.get_git_communication_interface().get_issue_description(),
                 "files": files,
                 "test_files": test_files,
                 "tests": tests
@@ -78,9 +76,9 @@ def main(application_arguments: ApplicationArguments):
             )
             application.save_predictions_json(instance_id, agent_infos)
             should_open_pr = application.should_open_pr(agent_infos,
-                                                        token=development_environment.get_git_communication_management().get_token())
+                                                        token=development_environment.get_git_communication_interface().get_token())
             if application_arguments.actions.open_pr and should_open_pr:
-                development_environment.get_git_communication_management().open_pull_request(application_arguments.actions, agent_infos, trajectory)
+                development_environment.get_git_communication_interface().open_pull_request(application_arguments.actions, agent_infos, trajectory)
 
         except KeyboardInterrupt:
             logger.info("Exiting InterCode environment...")
@@ -88,8 +86,8 @@ def main(application_arguments: ApplicationArguments):
             break
         except Exception as e:
             traceback.print_exc()
-            logger.warning(f"❌ Failed on {development_environment.get_git_communication_management().get_record()['instance_id']}: {e}")
-            development_environment.get_docker_communication().reset_container()
+            logger.warning(f"❌ Failed on {development_environment.get_git_communication_interface().get_repository_details_dict()['instance_id']}: {e}")
+            development_environment.get_docker_communication_interface().reset_container()
             continue
 
 

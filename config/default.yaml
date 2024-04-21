@@ -90,7 +90,7 @@ state_command:
           echo '{"open_file": "'$(realpath $CURRENT_FILE)'", "working_dir": "'$working_dir'"}';
       fi
     };
-parse_function: ThoughtActionParser
+parse_function: ThoughtActionPromptParser
 env_variables:
   WINDOW: 100
   OVERLAP: 2
@@ -102,7 +102,7 @@ env_variables:
 command_files:
 - config/commands/defaults.sh
 - config/commands/search.sh
-- config/commands/edit_linting.sh
+- config/commands/edit_linting.py
 - config/commands/_split_string.py
 parse_command: DetailedBashCommandParser
 history_processor: DefaultHistoryProcessor

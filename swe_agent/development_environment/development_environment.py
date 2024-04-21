@@ -1,23 +1,23 @@
-import gymnasium as gym
 import logging
 import re
 
 from rich.logging import RichHandler
 
 from swe_agent.development_environment.development_environment_arguments import DevelopmentEnvironmentArguments
-from swe_agent.development_environment.docker_communication_management import DockerCommunicationManagement
-from swe_agent.development_environment.git_communication_management import GitCommunicationManagement
-from swe_agent.development_environment.utils import (
-    is_from_github_url,
-    LOGGER_NAME,
-)
+from swe_agent.development_environment.docker_communication_interface import DockerCommunicationInterface
+from swe_agent.development_environment.git_communication_interface import GitCommunicationInterface
+from swe_agent.development_environment.utils import (LOGGER_NAME,)
 from typing import Tuple
 
 LONG_TIMEOUT = 500
 
 
-class DevelopmentEnvironment(gym.Env):
-    """Gym environment for SWE-bench. This class should handle all communication with the docker container."""
+class DevelopmentEnvironment:
+    """This is the development environment which runs the application sourcecode and the git
+    commands. The development environment also checks out the application sourcecode for the modification.
+    All file modifications are performed within this docker container.
+    This class should handle all communication with the docker container.
+    The scope of the development environment should in future be reduced to only run the code"""
 
     name = "swe_main"
 
@@ -43,37 +43,37 @@ class DevelopmentEnvironment(gym.Env):
         self.image_name = development_environment_arguments.image_name
         self.docker_communication_timeout = development_environment_arguments.docker_communication_timeout
         self.clean_multi_line_functions = lambda x: x
-        self.docker_communication = DockerCommunicationManagement(image_name=self.image_name,
-                                                                  container_name=self.container_name,
-                                                                  logger=self.logger)
-        self.git_communication_management = GitCommunicationManagement(sourcecode_repository_path=self.sourcecode_repository_path,
-                                                                       sourcecode_repository_type=self.sourcecode_repository_type,
-                                                                       split=self.split,
-                                                                       logger=self.logger,
-                                                                       install_python_environment=self.install_python_environment,
-                                                                       no_mirror=self.no_mirror,
-                                                                       docker_communication=self.docker_communication,
-                                                                       timeout=LONG_TIMEOUT)
+        self.docker_communication_interface = DockerCommunicationInterface(image_name=self.image_name,
+                                                                           container_name=self.container_name,
+                                                                           logger=self.logger)
+        self.git_communication_interface = GitCommunicationInterface(sourcecode_repository_path=self.sourcecode_repository_path,
+                                                                     sourcecode_repository_type=self.sourcecode_repository_type,
+                                                                     split=self.split,
+                                                                     logger=self.logger,
+                                                                     install_python_environment=self.install_python_environment,
+                                                                     no_mirror=self.no_mirror,
+                                                                     docker_communication=self.docker_communication_interface,
+                                                                     timeout=LONG_TIMEOUT)
 
-    def get_git_communication_management(self):
-        return self.git_communication_management
+    def get_git_communication_interface(self):
+        return self.git_communication_interface
 
-    def get_docker_communication(self):
-        return self.docker_communication
+    def get_docker_communication_interface(self):
+        return self.docker_communication_interface
 
     def reset(self, task_count: int = None, apply_test_patch: bool = False):
-        return self.git_communication_management.reset(task_count=task_count,
-                                                       apply_test_patch=apply_test_patch)
+        return self.git_communication_interface.reset(task_count=task_count,
+                                                      apply_test_patch=apply_test_patch)
 
     @staticmethod
     def is_bash_command(development_environment_command) -> bool:
-        if development_environment_command  in {"exit_context",
-                                                "exit_cost",
-                                                "exit_error",
-                                                "exit_format",
-                                                "exit_api",
-                                                "exit",
-                                                "strip"}:
+        if development_environment_command in {"exit_context",
+                                               "exit_cost",
+                                               "exit_error",
+                                               "exit_format",
+                                               "exit_api",
+                                               "exit",
+                                               "strip"}:
             return False
         else:
             return True
@@ -103,7 +103,7 @@ class DevelopmentEnvironment(gym.Env):
             return special_action_response, info
         elif special_action in {"exit_context", "exit_cost", "exit_error", "exit_format", "exit_api"}:
             try:
-                special_action_response = self.docker_communication.communicate(bash_command="submit")
+                special_action_response = self.docker_communication_interface.communicate(bash_command="submit")
                 submission = self.get_submission(special_action_response)
                 assert submission is not None and submission.strip() != "", AssertionError('No submission found.')
                 self.logger.info(f"Found submission: {submission}")
@@ -120,7 +120,7 @@ class DevelopmentEnvironment(gym.Env):
                 info["exit_status"] = special_action
                 return special_action_response, info
         else:  # only remaining alternative is to exit the development environment
-            special_action_response = self.docker_communication.exit_development_environment()
+            special_action_response = self.docker_communication_interface.exit_development_environment()
             info["exit_status"] = special_action
             return special_action_response, info
 
@@ -128,29 +128,29 @@ class DevelopmentEnvironment(gym.Env):
         info = {}
         commandline_response = ""
         try:
-            commandline_response, exit_code = self.docker_communication.communicate(bash_command=bash_command,
-                                                                                    timeout_duration=self.docker_communication_timeout)
+            commandline_response, exit_code = self.docker_communication_interface.communicate(bash_command=bash_command,
+                                                                                              timeout_duration=self.docker_communication_timeout)
         except TimeoutError:
             try:
-                self.docker_communication.interrupt()
+                self.docker_communication_interface.interrupt()
                 commandline_response += "\nEXECUTION TIMED OUT"
             except RuntimeError as e:
                 commandline_response += "\nEXECUTION TIMED OUT AND INTERRUPT FAILED. RESTARTING PROCESS."
                 info["exit_status"] = "early_exit"
                 self.logger.warning(f"Failed to interrupt container: {e}\nRESTARTING PROCESS.")
-                self.docker_communication.reset_container()
+                self.docker_communication_interface.reset_container()
                 return commandline_response, 0, False, info
         except RuntimeError as e:
             commandline_response += "\nCOMMAND FAILED TO EXECUTE. RESTARTING PROCESS."
             info["exit_status"] = "early_exit"
             self.logger.warning(f"Failed to execute command: {e}\nRESTARTING PROCESS.")
-            self.docker_communication.reset_container()
+            self.docker_communication_interface.reset_container()
             return commandline_response, 0, False, info
         except BrokenPipeError as e:
             commandline_response += "\nBROKEN PIPE ERROR. RESTARTING PROCESS."
             info["exit_status"] = "early_exit"
             self.logger.error(f"Broken pipe error: {e}\nRESTARTING PROCESS.")
-            self.docker_communication.reset_container()
+            self.docker_communication_interface.reset_container()
             return commandline_response, 0, False, info
         except Exception as e:
             commandline_response += "\nEXECUTION FAILED OR COMMAND MALFORMED"
@@ -178,11 +178,11 @@ class DevelopmentEnvironment(gym.Env):
             done (`bool`) - whether task is over
             info (`dict`) - additional information (e.g. debugging information)
         """
-        if not self.is_bash_command(development_environment_command):
-            special_action_response, info = self.handle_special_actions(special_action=development_environment_command)
-            return special_action_response, 0, True, info
-        else:
+        if self.is_bash_command(development_environment_command):
             commandline_response, reward, done, info = self.handle_bash_command_action(bash_command=development_environment_command)
             return commandline_response, reward, done, info
+        else:
+            special_action_response, info = self.handle_special_actions(special_action=development_environment_command)
+            return special_action_response, 0, True, info
 
 

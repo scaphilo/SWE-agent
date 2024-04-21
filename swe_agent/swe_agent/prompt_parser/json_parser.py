@@ -1,12 +1,13 @@
+import string
 import json
 import shlex
 from typing import List
 
 from swe_agent.swe_agent.command.commands import Command
-from swe_agent.swe_agent.parsing import ParseFunction, FormatError, extract_keys, should_quote
+from swe_agent.swe_agent.prompt_parser.prompt_parser import PromptParser, PromptParserFormatError
 
 
-class JsonParser(ParseFunction):
+class JsonPromptParser(PromptParser):
     """
     Expects the model response to be a JSON object.
     """
@@ -35,24 +36,24 @@ class JsonParser(ParseFunction):
         try:
             data = json.loads(model_response)
             if not isinstance(data, dict):
-                raise FormatError("Model output is not a JSON object.")
+                raise PromptParserFormatError("Model output is not a JSON object.")
 
             # Check if required keys are present
             required_keys = ["thought", "command"]
             for key in required_keys:
                 if key not in data:
-                    raise FormatError(f"Key '{key}' is missing from model output.")
+                    raise PromptParserFormatError(f"Key '{key}' is missing from model output.")
 
             # Check structure of 'command' key
             data_command = data["command"]
             if not isinstance(data_command, dict):
-                raise FormatError("Value of 'command' key is not a JSON object.")
+                raise PromptParserFormatError("Value of 'command' key is not a JSON object.")
 
             # Check if required keys are present in 'command' object
             command_keys = ["name"]
             for key in command_keys:
                 if key not in data_command:
-                    raise FormatError(f"Key '{key}' is missing from 'command' object.")
+                    raise PromptParserFormatError(f"Key '{key}' is missing from 'command' object.")
 
             thought = data["thought"]
 
@@ -67,18 +68,39 @@ class JsonParser(ParseFunction):
                 signature = command.signature
                 signature = signature.replace("[", "").replace("]", "")\
                     .replace("<", "{").replace(">", "}")
-                signature_args = extract_keys(signature)
+                signature_args = self.extract_keys(signature)
                 command_args = {k: "" for k in signature_args}
 
                 if "arguments" in data_command:
                     for arg in signature_args:
                         if arg in data_command["arguments"]:
                             value = data_command["arguments"][arg]
-                            if should_quote(value, command):
+                            if self.should_quote(value, command):
                                 value = shlex.quote(value)
                             command_args[arg] = value
                 action = signature.format(**command_args)
             action = action.strip()
             return thought, action
         except json.JSONDecodeError:
-            raise FormatError("Model output is not valid JSON.")
+            raise PromptParserFormatError("Model output is not valid JSON.")
+
+    import string
+
+    @staticmethod
+    def extract_keys(format_string):
+        """
+        Given a format string, returns a set of all the keys in the format string.
+        """
+        formatter = string.Formatter()
+        keys = set()
+        for _, field_name, _, _ in formatter.parse(format_string):
+            if field_name is not None:
+                keys.add(field_name)
+        return keys
+
+    @staticmethod
+    def should_quote(value, command):
+        """
+        Returns True if the value should be quoted, False otherwise.
+        """
+        return isinstance(value, str) and command.end_name is None

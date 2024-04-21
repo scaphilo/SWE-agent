@@ -62,7 +62,6 @@ class Application:
                 return True
         return False
 
-
     def create_trajectory_directory(self):
         self.trajectory_path = Path("trajectories") / Path(getuser()) / self.application_arguments.run_name
         os.makedirs(self.trajectory_path, exist_ok=True)
