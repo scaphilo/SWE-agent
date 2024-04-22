@@ -95,7 +95,9 @@ env_variables:
   SEARCH_INDEX: 0
 command_files:
 - config/commands/defaults.sh
-- config/commands/search.sh
+- config/commands/search_dir.py
+- config/commands/search_file.py
+- config/commands/find_file.py
 - config/commands/edit_linting.py
 - config/commands/_split_string.py
 parse_command: DetailedBashCommandParser

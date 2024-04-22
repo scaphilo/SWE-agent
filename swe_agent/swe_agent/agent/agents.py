@@ -148,10 +148,12 @@ class Agent:
         return matches[0]
 
     def _guard_multiline_input(self, action: str) -> str:
-        """Split action by multiline commands, then append the first line in each multiline command with "<< '{end_name}'".
-        Multiline commands (which are specified by an end_name) are commands that span multiple lines and are terminated by a specific end_name.
-        
-        Their multi-line argument is sent using a heredoc, which is a way to send a multi-line string to a command in bash.
+        """Split action by multiline commands, then append the first line in each multiline
+        command with "<< '{end_name}'".
+        Multiline commands (which are specified by an end_name) are commands that span
+        multiple lines and are terminated by a specific end_name
+        Their multi-line argument is sent using a heredoc, which is a way to send a multi-line
+        string to a command in bash.
         """
         parsed_action = list()
         rem_action = action
@@ -507,8 +509,8 @@ class Agent:
             model_thought, model_action, model_output = self.run_model(previous_commandline_response=previous_commandline_response,
                                                                        container_state=container_state)
             new_commandline_response_list = list()
-            run_action = self._guard_multiline_input(model_action)
-            for sub_action in self.split_actions(run_action):
+            #  run_action = self._guard_multiline_input(model_action)
+            for sub_action in self.split_actions(model_action):
                 if sub_action['agent'] == self.name or sub_action['cmd_name'] == self.config.submit_command:
                     new_commandline_response_element, _, done, agent_infos = development_environment.step(sub_action['action'])
                     new_commandline_response_list.append(new_commandline_response_element)

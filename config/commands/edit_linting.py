@@ -13,24 +13,25 @@
 # end_name: end_of_edit
 # arguments:
 #   start_line:
-#     type: integer
+#     type: int
 #     description: the line number to start the edit at
 #     required: true
 #   end_line:
-#     type: integer
+#     type: int
 #     description: the line number to end the edit at (inclusive)
 #     required: true
 #   replacement_text:
-#     type: string
+#     type: str
 #     description: the text to replace the current selection with
 #     required: true
 
 import os
 import argparse
 from shutil import copyfile
+from flake8.api.legacy import get_style_guide
 
 
-def edit(current_file, start_line_end_line, replacement_text):
+def edit_linting(current_file, start_line_end_line, replacement_text):
 
     start_line, end_line = start_line_end_line.split(":")
 
@@ -55,15 +56,21 @@ def edit(current_file, start_line_end_line, replacement_text):
 
     # Runs linter only if current file is a python file
     if current_file.endswith('.py'):
-        import subprocess
-        lint_output = subprocess.getoutput("flake8 --select=F821,F822,F831,E111,E112,E113,E999,E902 " + current_file)
-        print(lint_output)
+        style_guide = get_style_guide(select=['F821', 'F822', 'F831', 'E111', 'E112', 'E113', 'E999', 'E902'])
+        report = style_guide.check_files([current_file])
+
+        if report.total_errors == 0:
+            print("File updated. Please review the changes.")
+        else:
+            print("Your proposed edit has introduced new syntax error(s).")
+            print("Fix the errors and try again.")
 
     os.remove(backup_file)  # remove backup file
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="This script replaces lines <start_line> "                                                 "through <end_line> (inclusive) "
+    parser = argparse.ArgumentParser(description="This script replaces lines <start_line> "   
+                                                 "through <end_line> (inclusive) "
                                                  "with the given text in the open file.")
     parser.add_argument('--current_file', type=str, help='The file to work on',
                         default=os.getenv('CURRENT_FILE'))
@@ -78,4 +85,4 @@ if __name__ == "__main__":
     if args.current_file is None:
         print("No file specified, and environment variable 'CURRENT_FILE' not set.")
     else:
-        edit(args.current_file, args.start_end, args.replacement_text)
+        edit_linting(args.current_file, args.start_end, args.replacement_text)
