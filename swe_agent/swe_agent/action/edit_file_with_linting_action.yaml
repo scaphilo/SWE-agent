@@ -8,7 +8,6 @@
    syntax errors after the edit. If the system detects a syntax error, the edit will not be executed.
    Simply try to edit the file again, but make sure to read the error message and modify the edit command
    you issue accordingly. Issuing the same command a second time will just lead to the same error message again.
- end_name: end_of_edit
  arguments:
    start_line:
      type: int

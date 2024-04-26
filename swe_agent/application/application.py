@@ -7,8 +7,8 @@ from typing import Dict, Any
 
 from swebench import KEY_MODEL, KEY_INSTANCE_ID, KEY_PREDICTION
 
-from swe_agent.development_environment.utils import get_gh_issue_data, InvalidGithubURL, parse_gh_issue_url, \
-    get_associated_commit_urls
+from swe_agent.development_environment.git_communication_interface import GitCommunicationInterface, InvalidGithubURL
+from swe_agent.development_environment.utils import get_associated_commit_urls
 
 
 class Application:
@@ -90,7 +90,7 @@ class Application:
             self.logger.info("Not openening PR because exit status was %s and not submitted.", info["exit_status"])
             return False
         try:
-            issue = get_gh_issue_data(self.application_arguments.sourcecode_repository_path, token=token)
+            issue = GitCommunicationInterface.get_gh_issue_data(self.application_arguments.sourcecode_repository_path, token=token)
         except InvalidGithubURL:
             self.logger.info("Currently only github is supported to open PRs to. Skipping PR creation.")
             return False
@@ -103,7 +103,7 @@ class Application:
         if issue.locked:
             self.logger.info("Issue is locked. Skipping PR creation.")
             return False
-        org, repo, issue_number = parse_gh_issue_url(self.application_arguments.sourcecode_repository_path)
+        org, repo, issue_number = GitCommunicationInterface.parse_gh_issue_url(self.application_arguments.sourcecode_repository_path)
         associated_commits = get_associated_commit_urls(org, repo, issue_number, token=token)
         if associated_commits:
             commit_url_strs = ", ".join(associated_commits)

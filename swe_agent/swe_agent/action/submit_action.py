@@ -1,39 +1,52 @@
-#!/usr/bin/env python3
-# @yaml
-# signature: submit
-# docstring: submits your current code and terminates the session
 import os
-import subprocess
+import re
+from pathlib import Path
+from swe_agent.swe_agent.action.action import Action
+from swe_agent.development_environment.git_communication_interface import GitCommunicationInterface
 
 
-def submit():
-    root_dir = os.getenv('ROOT')
-    if root_dir is None:
-        print('ROOT path not defined')
-        return
+class SubmitAction(Action):
+    def __init__(self):
+        super().__init__()
+        self.identification_string = r'submit'
+        self.description = Path(__file__).with_suffix('.yaml').read_text()
 
-    # Change directory to ROOT
-    os.chdir(root_dir)
+    def match(self, action_string: str):
+        return bool(re.fullmatch(self.identification_string, action_string))
 
-    # Check if the patch file exists and is non-empty
-    patch_file = '/root/test.patch'
-    if os.path.exists(patch_file) and os.path.getsize(patch_file) > 0:
-        # Apply the patch in reverse
-        subprocess.run(['git', 'apply', '-R'], input=open(patch_file).read())
+    def parse(self, action_string: str):
+        return  # There are no additional arguments to parse in this action
 
-    # Stage all changes
-    subprocess.run(['git', 'add', '-A'])
+    def execute(self, logger,
+                window_size: int = None,
+                overlap: int = None,
+                current_line: int = None,
+                current_file: Path = None,
+                git_comm_interface: GitCommunicationInterface = None):
+        logger.info(f'Submit action called.')
 
-    # Write staged changes to model.patch file
-    with open('model.patch', 'w') as f:
-        subprocess.run(['git', 'diff', '--cached'], stdout=f)
+        root_dir = os.getenv('ROOT')
+        if root_dir is None:
+            logger.error('ROOT path not defined.')
+            return
 
-    # Read and print the contents of model.patch file
-    with open('model.patch', 'r') as f:
-        print('<<SUBMISSION||')
-        print(f.read())
-        print('||SUBMISSION>>')
+        # Change directory to ROOT
+        os.chdir(root_dir)
 
+        # Check if the patch file exists and is non-empty
+        patch_file = '/root/test.patch'
+        if os.path.exists(patch_file) and os.path.getsize(patch_file) > 0:
+            git_comm_interface.repo.git.apply("-R")
 
-if __name__ == '__main__':
-    submit()
+        # Stage all changes
+        git_comm_interface.repo.git.add("-A")
+
+        # Write staged changes to model.patch file
+        with open('model.patch', 'w') as f:
+            git_comm_interface.repo.git.diff("--cached")
+
+        # Read and print the contents of model.patch file
+        with open('model.patch', 'r') as f:
+            print('<<SUBMISSION||')
+            print(f.read())
+            print('||SUBMISSION>>')

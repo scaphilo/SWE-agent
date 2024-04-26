@@ -23,8 +23,12 @@ class EditFileWithLintingAction(Action):
     def match(self, action_string: str):
         return bool(re.fullmatch(self.identification_string, action_string, re.DOTALL))
 
-    def execute(self, logger, window_size: int = None, overlap: int = None,
-                current_line: int = None, current_file: Path = None) -> str:
+    def execute(self, logger,
+                window_size: int = None,
+                overlap: int = None,
+                current_line: int = None,
+                current_file: Path = None,
+                git_comm_interface: 'GitCommunicationInterface' = None) -> str:
         logger.info(f'Execute called with: window_size={window_size}, overlap={overlap},'
                     f' current_line={current_line}, current_file={current_file}')
         if not self.start_line.isdigit() or not self.end_line.isdigit():

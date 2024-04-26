@@ -105,13 +105,6 @@ env_variables:
   END_CURSOR: 0
   START_CURSOR_MARK: '"<<<<< START CURSOR >>>>>"'  # these have to use double quotes
   END_CURSOR_MARK: '"<<<<< END CURSOR >>>>>"' # these have to use double quotes
-command_files:
-- config/commands/cursors_defaults.sh
-- config/commands/cursors_edit_linting.py
-- config/commands/search_dir_action.py
-- config/commands/search_file_action.py
-- config/commands/find_file_action.py
-- config/commands/_split_string.py
 parse_command: DetailedBashCommandParser
 history_processor: DefaultHistoryProcessor
 demonstrations:

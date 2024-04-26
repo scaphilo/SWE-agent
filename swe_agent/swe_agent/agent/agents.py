@@ -3,7 +3,8 @@ import re
 import logging
 
 from pathlib import Path
-
+from tenacity import RetryError
+from typing import Optional
 from swe_agent import AgentArguments
 from swe_agent.swe_agent.model.models import (
     ContextWindowExceededError,
@@ -17,8 +18,17 @@ from swe_agent.development_environment.utils import LOGGER_NAME
 from swe_agent.development_environment.git_communication_interface import GitCommunicationInterface
 from swe_agent.development_environment.docker_communication_interface import  DockerCommunicationInterface
 from swe_agent.development_environment.development_environment import DevelopmentEnvironment
-from tenacity import RetryError
-from typing import Optional
+from swe_agent.swe_agent.action.action import Action
+from swe_agent.swe_agent.action.create_file_action import CreateFileAction
+from swe_agent.swe_agent.action.edit_file_with_linting_action import EditFileWithLintingAction
+from swe_agent.swe_agent.action.find_file_action import FindFileAction
+from swe_agent.swe_agent.action.goto_line_action import GoToLineAction
+from swe_agent.swe_agent.action.open_file_action import OpenFileAction
+from swe_agent.swe_agent.action.scroll_action import ScrollAction
+from swe_agent.swe_agent.action.submit_action import SubmitAction
+from swe_agent.swe_agent.action.search_file_action import SearchFileAction
+from swe_agent.swe_agent.action.search_dir_action import SearchDirAction
+
 
 logger = logging.getLogger(LOGGER_NAME)
 
@@ -34,7 +44,11 @@ class Agent:
         self._parse_command_patterns()
         self.history = []
         self.last_container_id = None
-        self.model_commands = self.config._commands + self.config.subroutine_types
+        self.available_actions = [CreateFileAction(), EditFileWithLintingAction(),
+                                  FindFileAction(), GoToLineAction(),
+                                  SearchDirAction(), SearchFileAction(),
+                                  ScrollAction(), OpenFileAction(),
+                                  SubmitAction()]
         self.system_arguments = {
             "command_docs": self.config.command_docs,
             **self.config.env_variables,
@@ -422,17 +436,21 @@ class Agent:
             model_thought, model_action, model_output = self.run_model(previous_commandline_response=previous_action_response,
                                                                        container_state=state)
             new_commandline_response = ""
-            try: 
-                action = Action.parse_action(model_action)
-            except ActionNotFound as e:
+            action = Action.parse_action(model_action)
+            if action is None:
                 logger.info("Command " + model_action + " not found")
                 new_commandline_response = "Command " + model_action + " not found"
             else:
-                if Type(action) is SubmitAction:
+                if type(action) is SubmitAction:
                     done = True
                 if done:
                     break
-                new_commandline_response = action.execute(self.current_file, self.current_dir, self.window_size)
+                new_commandline_response = action.execute(logger=logger,
+                                                          window_size=self.window_size,
+                                                          overlap=self.overlap,
+                                                          current_line=self.current_line,
+                                                          current_file=self.current_file,
+                                                          git_comm_interface=git_communication_interface)
 
             trajectory.append(
                 {

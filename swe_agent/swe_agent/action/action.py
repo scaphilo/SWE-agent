@@ -1,5 +1,6 @@
 from pathlib import Path
 from abc import abstractmethod, ABC
+from swe_agent.development_environment.git_communication_interface import GitCommunicationInterface
 
 
 class Action(ABC):
@@ -25,7 +26,13 @@ class Action(ABC):
         pass
 
     @abstractmethod
-    def execute(self, logger, window_size: int = None, overlap: int = None,
-                current_line: int = None, current_file: Path = None) -> str:
+    def execute(self,
+                logger,
+                window_size: int = None,
+                overlap: int = None,
+                current_line: int = None,
+                current_file: Path = None,
+                git_comm_interface: GitCommunicationInterface = None) -> str:
         pass
+
 

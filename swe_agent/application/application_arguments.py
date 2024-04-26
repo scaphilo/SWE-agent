@@ -5,7 +5,7 @@ from simple_parsing.helpers import FlattenedAccess, FrozenSerializable
 
 from swe_agent import DevelopmentEnvironmentArguments, AgentArguments
 from swe_agent.application.action_arguments import ActionsArguments
-from swe_agent.development_environment.utils import GITHUB_ISSUE_URL_PATTERN
+from swe_agent.development_environment.git_communication_interface import GITHUB_ISSUE_URL_PATTERN
 
 
 @dataclass(frozen=True)

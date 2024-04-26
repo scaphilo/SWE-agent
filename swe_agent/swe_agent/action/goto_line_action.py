@@ -5,10 +5,9 @@ from swe_agent.swe_agent.action.action import Action
 
 
 class GoToLineAction(Action):
-    identification_string = r'goto_line\s*([0-9]+)'
-
     def __init__(self):
         super().__init__()
+        self.identification_string = r'goto_line\s*([0-9]+)'
         self.description = Path(__file__).with_suffix('.yaml').read_text()
         self.line_number = None
 
@@ -20,8 +19,12 @@ class GoToLineAction(Action):
         if match is not None:
             self.line_number = int(match.group(1))
 
-    def execute(self, logger, window_size: int = None, overlap: int = None,
-                current_line: int = None, current_file: Path = None) -> str:
+    def execute(self, logger,
+                window_size: int = None,
+                overlap: int = None,
+                current_line: int = None,
+                current_file: Path = None,
+                git_comm_interface: 'GitCommunicationInterface' = None) -> str:
         logger.info(f'Go to line called with: line_number={self.line_number}')
 
         if current_file is None or self.line_number is None:

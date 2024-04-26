@@ -6,10 +6,9 @@ from swe_agent.swe_agent.action.action import Action
 
 
 class FindFileAction(Action):
-    identification_string = r'find_file\s*([^ ]+)(?:\s*(.*))?'
-
     def __init__(self):
         super().__init__()
+        self.identification_string = r'find_file\s*([^ ]+)(?:\s*(.*))?'
         self.description = Path(__file__).with_suffix('.yaml').read_text()
         self.file_name = None
         self.dir_path = '.'
@@ -25,8 +24,12 @@ class FindFileAction(Action):
     def match(self, action_string: str):
         return bool(re.fullmatch(self.identification_string, action_string))
 
-    def execute(self, logger, window_size: int = None, overlap: int = None,
-                current_line: int = None, current_file: Path = None):
+    def execute(self, logger,
+                window_size: int = None,
+                overlap: int = None,
+                current_line: int = None,
+                current_file: Path = None,
+                git_comm_interface: 'GitCommunicationInterface' = None):
         logger.info(f'Find file called with: filename={self.file_name}, directory={self.dir_path}')
 
         if not os.path.isdir(self.dir_path):
