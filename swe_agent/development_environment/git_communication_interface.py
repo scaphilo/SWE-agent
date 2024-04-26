@@ -1,48 +1,41 @@
 import os
 import random
-import subprocess
-from typing import Tuple
-
 import config
 from ghapi.core import GhApi
 from git import Repo
+from typing import List, Tuple, Dict
+import re
 
-from swe_agent.development_environment.utils import (get_gh_issue_data, parse_gh_issue_url, parse_gh_repo_url,
-                                                     format_trajectory_markdown, copy_file_to_container,
-                                                     fetch_github_issue_details, load_dataset_from_directory,
-                                                     UndefinedSourcecodeRepositoryType, load_huggingface_dataset)
-from swe_agent.development_environment.docker_communication_interface import DockerCommunicationInterface
+from swe_agent.development_environment.utils import (format_trajectory_markdown,
+                                                     UndefinedSourcecodeRepositoryType, )
 
-from swebench import (
-    get_environment_yml,
-    get_requirements,
-    MAP_VERSION_TO_INSTALL
-)
 PATH_TO_REQUIREMENTS = "/root/requirements.txt"
 PATH_TO_ENV_YML = "/root/environment.yml"
+GITHUB_ISSUE_URL_PATTERN = re.compile(r'github\.com\/(.*?)\/(.*?)\/issues\/(\d+)')
 
 
 class GitCommunicationInterface:
     def __init__(self,
-                 sourcecode_repository_path: str,
+                 sourcecode_repository_remote: str,
+                 sourcecode_repository_local: str,
                  sourcecode_repository_type: str,
+                 github_issue_url: str,
                  split: str,
                  logger,
-                 install_python_environment,
                  no_mirror,
-                 docker_communication: 'DockerCommunicationInterface',
                  timeout: int):
-        self.docker_communication = docker_communication
         self.task_count = 0
         self.split = split
         self.no_mirror = no_mirror
-        self.install_python_environment = install_python_environment
-        self.sourcecode_repository_path = sourcecode_repository_path
+        self.github_issue_url = github_issue_url
+        self.sourcecode_repository_remote = sourcecode_repository_remote
+        self.sourcecode_repository_local = sourcecode_repository_local
         self.sourcecode_repository_type = sourcecode_repository_type
         self.base_commit = None
         self.github_token = os.environ.get("GITHUB_TOKEN", None)
         self.timeout = timeout
         self.logger = logger
+        self.repo = Repo.clone_from(sourcecode_repository_remote, sourcecode_repository_local)
         # Get commit hash
         try:
             repo = Repo(search_parent_directories=True)
@@ -59,16 +52,7 @@ class GitCommunicationInterface:
             self.cfg = config.Config(os.path.join(os.getcwd(), "keys.cfg"))
             self.github_token = self.cfg.get("GITHUB_TOKEN", "git")
         if self.sourcecode_repository_type == "Github":
-            self.repository_details_dict = fetch_github_issue_details(github_issue_url=sourcecode_repository_path,
-                                                                      base_commit=self.base_commit,
-                                                                      token=self.github_token)
-        elif self.sourcecode_repository_type == "File":
-            self.repository_details_dict = load_dataset_from_directory(file_path=self.sourcecode_repository_path,
-                                                                       split=self.split)
-        elif self.sourcecode_repository_type == "Huggingface":
-            self.repository_details_dict = load_huggingface_dataset(file_path=sourcecode_repository_path,
-                                                                    base_commit=self.base_commit,
-                                                                    split=self.split)
+            self.repository_details_dict = self.fetch_github_issue_details()
         else:
             raise UndefinedSourcecodeRepositoryType("The Sourcecode Repository Type: %s does not exist"
                                                     .format(self.sourcecode_repository_type))
@@ -83,70 +67,112 @@ class GitCommunicationInterface:
     def get_token(self):
         return self.github_token
 
+    @staticmethod
+    def get_gh_issue_data(issue_url: str, *, token: str = ""):
+        """Returns github issue data in the form of a dictionary.
+        See https://docs.github.com/en/rest/issues/issues?apiVersion=2022-11-28#get-an-issue
+        for return format
+        """
+        owner, repo, issue_number = GitCommunicationInterface.parse_gh_issue_url(issue_url)
+        api = GhApi(token=token)
+        return api.issues.get(owner, repo, issue_number)
+
+    def fetch_github_issue_details(self) -> dict:
+        """
+        Fetches the GitHub issue details and constructs an instance.
+    
+        Returns:
+            list: A list containing the constructed instance.
+        """
+    
+        gitlab_details_dict = dict()
+        try:
+            owner, repo, issue_number = GitCommunicationInterface.parse_gh_issue_url(self.github_issue_url)
+        except InvalidGithubURL:
+            pass
+        else:
+            api = GhApi(token=self.github_token)
+            issue = api.issues.get(owner, repo, issue_number)
+            title = issue.title if issue.title else ""
+            body = issue.body if issue.body else ""
+            text = f"{title}\n{body}\n"
+            gitlab_details_dict["repo"] = f"{owner}/{repo}"
+            gitlab_details_dict["base_commit"] = self.base_commit if self.base_commit else GitCommunicationInterface.get_commit(api, owner, repo, self.base_commit).sha
+            gitlab_details_dict["version"] = gitlab_details_dict["base_commit"][:7]
+            self.issue_description = text
+            self.issue_number = issue_number
+            self.issue_title = issue.title
+            gitlab_details_dict["instance_id"] = f"{owner}__{repo}-i{issue_number}"
+        return gitlab_details_dict
+
+    @staticmethod
+    def get_commit(api: GhApi, owner: str, repo: str, base_commit: str = None):
+        if base_commit:
+            commit = api.repos.get_commit(owner, repo, base_commit)
+        else:
+            commit = api.repos.list_commits(owner, repo)[0]
+        return commit
+
+    @staticmethod
+    def parse_gh_issue_url(issue_url: str) -> Tuple[str, str, str]:
+        """Return owner, repo, issue number from issue url"""
+        match = GITHUB_ISSUE_URL_PATTERN.search(issue_url)
+        if not match:
+            raise InvalidGithubURL(f"Invalid GitHub issue URL: {issue_url}")
+        res = match.groups()
+        assert len(res) == 3
+        return tuple(res)  # type: ignore
+
+    @staticmethod
+    def parse_gh_repo_url(repo_url: str) -> Tuple[str, str]:
+        """Return owner, repo from repo url"""
+        if not repo_url.startswith('http://') and not repo_url.startswith('https://'):
+            repo_url = 'https://' + repo_url
+        parts = repo_url.split('/')
+        owner = parts[3]
+        repo = parts[4]
+        return owner, repo
+
+    @staticmethod
+    def is_from_github_url(data_path: str):
+        return GITHUB_ISSUE_URL_PATTERN.search(data_path) is not None
+
     def open_pull_request(self, action_config, info, trajectory):
         """Create PR to repository"""
         self.logger.info("Opening PR")
         # todo: have better way of handling this
         # Adding random string suffix to avoid name conflicts if we had a previously failed run
-        issue_url = self.sourcecode_repository_path
-        issue = get_gh_issue_data(issue_url, token=self.github_token)
-        branch_name = f"swe-agent-fix-#{issue.number}-" + str(random.random())[2:10]
+        issue_url = self.github_issue_url
+        branch_name = f"swe-agent-fix-#{self.issue_number}-" + str(random.random())[2:10]
 
-        self.docker_communication.communicate_with_handling(
-            bash_command=f"rm model.patch",
-            error_msg="Failed to remove model patch",
-            timeout_duration=10,
-        )
-        self.docker_communication.communicate_with_handling(
-            bash_command=f"git checkout -b {branch_name}",
-            error_msg="Failed to switch to new branch",
-            timeout_duration=10,
-        )
-        self.docker_communication.communicate_with_handling(
-            bash_command=f"git add .",
-            error_msg="Failed to add commits",
-            timeout_duration=10,
-        )
-        self.docker_communication.communicate_with_handling(
-            bash_command=f"git commit -m 'Fix: {issue.title}' -m 'Closes #{issue.number}' ",
-            error_msg="Failed to commit changes",
-            timeout_duration=10,
-        )
+        self.repo.git.checkout('-b', branch_name)
+        self.repo.git.add(all=True)
+        self.repo.git.commit('-m', f"'Fix: {self.issue_title}' -m 'Closes #{self.issue_number}'")
+
         # If users want to push to a fork, we add a new remote and push to that
         # otherwise, we push to 'origin' which has already been set up
         remote = "origin"
         if not action_config.push_gh_repo_url:
-            owner, repo, _ = parse_gh_issue_url(issue_url)
+            owner, repo, _ = GitCommunicationInterface.parse_gh_issue_url(issue_url)
         else:
-            owner, repo = parse_gh_repo_url(action_config.push_gh_repo_url)
+            owner, repo = GitCommunicationInterface.parse_gh_repo_url(action_config.push_gh_repo_url)
         if action_config.push_gh_repo_url:
             fork_url = f"https://{self.github_token}@github.com/{owner}/{repo}.git"
-            self.docker_communication.communicate_with_handling(
-                bash_command=f"git remote add fork {fork_url}",
-                error_msg="Failed to create new git remote",
-                timeout_duration=10,
-            )
+            self.repo.git.remote("add", "fork", fork_url)
             remote = "fork"
-        self.docker_communication.communicate_with_handling(
-            bash_command=f"git push {remote} {branch_name}",
-            error_msg=(
-                "Failed to push branch to remote. Please check your token and permissions. "
-                "You might want to push to a fork with the push_gh_repo_url option."
-            ),
-            timeout_duration=10,
-        )
+        self.repo.git.push(remote, branch_name)
 
         # todo: add representation of trajectory to PR body
         body = (
             f"This is a PR opened by AI tool [SWE Agent](https://github.com/princeton-nlp/SWE-agent/) "
-            f"to close [#{issue.number}]({issue_url}) ({issue.title}).\n\nCloses #{issue.number}."
+            f"to close [#{self.issue_number}]({issue_url}) ({self.issue_title}).\n\nCloses #{self.issue_number}."
         )
         body += "\n\n" + format_trajectory_markdown(trajectory)
         api = GhApi(token=self.github_token)
         pr_info = api.pulls.create(
             owner=owner,
             repo=repo,
-            title=f"SWE-agent[bot] PR to fix: {issue.title}",
+            title=f"SWE-agent[bot] PR to fix: {self.issue_number}",
             head=branch_name,
             base="main",
             body=body,
@@ -155,234 +181,8 @@ class GitCommunicationInterface:
         self.logger.info(
             f"🎉 PR created as a draft at {pr_info.html_url}. Please review it carefully, push "
             "any required changes onto the branch and then click "
-            "'Ready for Review' to bring it to the attention of the maintainers."
-        )
+            "'Ready for Review' to bring it to the attention of the maintainers.")
 
-    def reset(self, task_count: int = None, apply_test_patch: bool = False) -> Tuple[str, dict]:
-        """
-        Function to reset container between each task instance.
-        * Clones instance's repository
-        * Cleans repository of prior modifications
-        * Resets environment variables
-        * Check out base commit
 
-        Arguments:
-            task_count (`int`) - index of task instance to reset to
-        Returns:
-            observation (`str`) - output from container
-            info (`dict`) - additional information (e.g. debugging information)
-        """
-        info = {"commit_sha": self.commit_sha}
-
-        # Get task instance
-        self.task_count = task_count if task_count is not None else self.task_count
-        self.task_count += 1
-
-        # Set query, gold command
-        self.base_commit = self.repository_details_dict["base_commit"]
-        self.issue_description = self.repository_details_dict["problem_statement"]
-        self.reward = None
-
-        # Clone repository if not already cloned
-        self.docker_communication.communicate(bash_command="cd /")
-        folders = self.docker_communication.communicate(bash_command="ls")[0].split("\n")
-        repo_name = self.repository_details_dict["repo"].replace("/", "__")
-        if repo_name not in folders:
-            if not self.no_mirror and not self.sourcecode_repository_type == "Github":
-                self.logger.info(f"{repo_name} not found in container, cloning...")
-                self.docker_communication.communicate_with_handling(
-                    bash_command=f"git clone https://{self.github_token}@github.com/swe-bench/{repo_name}.git",
-                    error_msg="Failed to clone repository from mirror",
-                    timeout_duration=self.timeout,
-                )
-            else:
-                self.logger.info(f"Clone repository from Github...")
-                self.docker_communication.communicate_with_handling(
-                    bash_command=f"git clone https://{self.github_token}@github.com/{self.repository_details_dict['repo']}.git {repo_name}",
-                    error_msg="Failed to clone repository from non-mirror",
-                    timeout_duration=self.timeout,
-                )
-
-        # Clean repository of any modifications + Checkout base commit
-        for cmd in [
-            "echo -n > /root/files_to_edit.txt",
-            f"cd {repo_name}",
-            "export ROOT=$(pwd -P)",
-            "git status",
-            "git restore .",
-            f"git reset --hard {self.base_commit}",
-            "git clean -fdxq",
-        ]:
-            self.docker_communication.communicate_with_handling(
-                bash_command=cmd,
-                error_msg="Failed to clean repository",
-            )
-
-        # Reset environment variables
-        for cmd in [
-            'export CURRENT_FILE=""',
-            "export CURRENT_LINE=0",
-            "export SEARCH_RESULTS=()",
-            "export SEARCH_FILES=()",
-            "export SEARCH_INDEX=0",
-        ]:
-            self.docker_communication.communicate_with_handling(
-                bash_command=cmd,
-                error_msg="Failed to reset environment variables",
-            )
-
-        # Set up environment
-        self.docker_communication.communicate_with_handling(
-            bash_command="source /root/miniconda3/etc/profile.d/conda.sh",
-            error_msg="Failed to source conda",
-        )
-
-        system = self.docker_communication.communicate("uname -s")[0].strip().lower()
-        arch = self.docker_communication.communicate("uname -m")[0].strip().lower()
-        if system == 'linux' and arch == 'x86_64':
-            self.docker_communication.communicate_with_handling(
-                bash_command=f"apt update; apt install build-essential -y",
-                error_msg="Failed to install build-essential",
-                timeout_duration=self.timeout,
-            )
-
-        # Call install environment helper function if specified
-        if self.install_python_environment:
-            if self.sourcecode_repository_type == "Github":
-                self.logger.warning((
-                    "install_environment is set to True, but the data path is a GitHub URL. "
-                    "Skipping conda environment installation."
-                ))
-            else:
-                self.install_env()
-        # Install mypy for linting purposes
-        self.docker_communication.communicate_with_handling(
-            bash_command=f"pip install flake8",
-            error_msg="Failed to install flake8 (lint library)"
-        )
-
-        # Apply test patch for oracle setting
-        if apply_test_patch:
-            path_to_patch = "test.patch"
-            with open(path_to_patch, "w") as f:
-                f.write(self.repository_details_dict["test_patch"])
-            subprocess.run(
-                f"docker cp {path_to_patch} {self.docker_communication.get_container_name()}:/root/test.patch",
-                shell=True,
-            )
-            self.docker_communication.communicate_with_handling(
-                bash_command="git apply /root/test.patch",
-                error_msg="Failed to apply test patch correctly"
-            )
-            os.remove(path_to_patch)
-        # Write any metadata to info if necessary
-        return "", info
-
-    def install_env(self) -> None:
-        """
-        Creates conda environment and installs third party dependencies to allow code execution
-        """
-        repo_name = self.repository_details_dict["repo"].replace("/", "__")
-        # Create environment if does not exist yet
-        env_name = f"{repo_name}__{self.repository_details_dict['version']}"
-        env_check = self.docker_communication.communicate(
-            f"conda env list | grep {env_name}", timeout_duration=self.timeout
-        )
-        install_configs = MAP_VERSION_TO_INSTALL[self.repository_details_dict["repo"]][
-            str(self.repository_details_dict["version"])
-        ]
-        if env_check[0].strip() == "":
-            self.logger.info(f"{env_name} conda env not found, creating...")
-            packages = (
-                install_configs.get("packages", "")
-            )
-            if packages == "requirements.txt":
-                # Create conda environment
-                self.docker_communication.communicate_with_handling(
-                    bash_command=f"conda create -n {env_name} python={install_configs['python']} -y",
-                    error_msg="Failed to create conda environment",
-                    timeout_duration=self.timeout,
-                )
-                # Write reqs to requirements.txt in docker container
-                content_reqs = get_requirements(self.repository_details_dict)
-                copy_file_to_container(self.docker_communication.get_container_obj(), content_reqs, PATH_TO_REQUIREMENTS)
-                # Create conda environment + install reqs
-                self.docker_communication.communicate_with_handling(
-                    bash_command=f"conda activate {env_name}",
-                    error_msg="Failed to activate conda environment",
-                )
-                self.docker_communication.communicate_with_handling(
-                    bash_command=f"pip install -r {PATH_TO_REQUIREMENTS}",
-                    error_msg="Failed to install requirements.txt",
-                    timeout_duration=self.timeout,
-                )
-                self.docker_communication.communicate(f"rm {PATH_TO_REQUIREMENTS}")
-            elif packages == "environment.yml":
-                # Write environment.yml to file
-                content_env_yml = get_environment_yml(self.repository_details_dict, env_name)
-                copy_file_to_container(self.docker_communication.get_container_obj(), content_env_yml, PATH_TO_ENV_YML)
-                if "no_use_env" in install_configs and install_configs["no_use_env"]:
-                    # Create conda environment
-                    self.docker_communication.communicate_with_handling(
-                        bash_command=f"conda create -c conda-forge -n {env_name} python={install_configs['python']} -y",
-                        error_msg="Failed to create conda environment",
-                        timeout_duration=self.timeout,
-                    )
-                    # Install packages
-                    self.docker_communication.communicate_with_handling(
-                        bash_command=f"conda env update -f {PATH_TO_ENV_YML}",
-                        error_msg="Failed to install environment.yml",
-                        timeout_duration=self.timeout
-                    )
-                else:
-                    # Create environment + install packages
-                    self.docker_communication.communicate_with_handling(
-                        bash_command=f"conda env create --file {PATH_TO_ENV_YML}",
-                        error_msg="Failed to create conda environment with environment.yml",
-                        timeout_duration=self.timeout,
-                    )
-                self.docker_communication.communicate(f"rm {PATH_TO_ENV_YML}")
-            else:
-                # Create environment + install packages
-                self.docker_communication.communicate_with_handling(
-                    bash_command=f"conda create -n {env_name} python={install_configs['python']} {packages} -y",
-                    error_msg="Failed to create conda environment",
-                    timeout_duration=self.timeout,
-                )
-            # Install extra pip packages if specified
-            if "pip_packages" in install_configs:
-                self.docker_communication.communicate_with_handling(
-                    bash_command=f"source activate {env_name} && pip install {install_configs['pip_packages']}",
-                    error_msg="Failed to install pip packages",
-                    timeout_duration=self.timeout
-                )
-
-        # Activate environment
-        self.docker_communication.communicate_with_handling(
-            bash_command=f"conda activate {env_name}",
-            error_msg="Failed to activate conda environment"
-        )
-
-        # Install repo at base commit
-        if "pre_install" in install_configs:
-            self.logger.info("Running pre-install commands...")
-            for pre_install_cmd in install_configs["pre_install"]:
-                self.docker_communication.communicate_with_handling(
-                    bash_command=pre_install_cmd,
-                    error_msg="Pre-install commands failed to execute successfully",
-                )
-        self.logger.info(f"Installing {repo_name} at base commit...")
-        if "install" in install_configs:
-            install_cmd = install_configs["install"]
-            self.docker_communication.communicate_with_handling(
-                bash_command=install_cmd,
-                error_msg="Install command failed to execute successfully",
-                timeout_duration=self.timeout
-            )
-        if "post_install" in install_configs:
-            self.logger.info("Running post-install commands...")
-            for post_install_cmd in install_configs["post_install"]:
-                self.docker_communication.communicate_with_handling(
-                    bash_command=post_install_cmd,
-                    error_msg="Post-install commands failed to execute successfully",
-                )
+class InvalidGithubURL(ValueError):
+    ...

@@ -22,7 +22,7 @@ def search_file(search_term: str, filepath: str = None):
     if filepath:
         file_path = Path(filepath)
     else:
-        file_path = Path(os.getenv('CURRENT_FILE', '.'))
+        file_path = Path(os.getenv('CURRENT_FILE', '../../../config/commands'))
 
     # Check if file exists
     if not file_path.is_file():

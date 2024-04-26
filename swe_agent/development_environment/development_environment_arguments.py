@@ -7,6 +7,8 @@ from simple_parsing.helpers import FrozenSerializable
 @dataclass(frozen=True)
 class DevelopmentEnvironmentArguments(FrozenSerializable):
     sourcecode_repository_path: str
+    sourcecode_repository_remote: str
+    sourcecode_repository_local: str
     image_name: str
     split: str = "dev"
     base_commit: Optional[str] = None  # used only with data_path as url

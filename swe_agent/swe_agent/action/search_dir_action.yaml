@@ -1,0 +1,11 @@
+signature: search_dir <search_term> [<dir>]
+docstring: searches for search_term in all files in dir. If dir is not provided, searches in the current directory
+arguments:
+  search_term:
+    type: str
+    description: the term to search for
+    required: true
+  dir:
+    type: str
+    description: the directory to search in (if not provided, searches in the current directory)
+    required: false

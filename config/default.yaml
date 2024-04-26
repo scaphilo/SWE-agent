@@ -100,11 +100,17 @@ env_variables:
   SEARCH_FILES: ()
   SEARCH_INDEX: 0
 command_files:
-- config/commands/defaults.sh
-- config/commands/search_dir.py
-- config/commands/search_file.py
-- config/commands/find_file.py
-- config/commands/edit_linting.py
+- config/commands/submit_action.py
+- config/commands/create_file_action.py
+- config/commands/goto_line_action.py
+- config/commands/open_file_action.py
+- config/commands/scroll_action.py
+- config/commands/scroll_down.py
+- config/commands/create_file_action.py
+- config/commands/search_dir_action.py
+- config/commands/search_file_action.py
+- config/commands/find_file_action.py
+- config/commands/edit_file_with_linting_action.py
 - config/commands/_split_string.py
 parse_command: DetailedBashCommandParser
 history_processor: DefaultHistoryProcessor

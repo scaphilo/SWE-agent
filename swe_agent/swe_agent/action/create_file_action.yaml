@@ -1,0 +1,7 @@
+signature: create_file <filename>
+docstring: creates and opens a new file with the given name
+arguments:
+  filename:
+    type: str
+    description: the name of the file to create
+    required: true

@@ -1,0 +1,12 @@
+signature: open_file <path> [<line_number>]
+docstring: opens the file at the given path in the editor. If line_number is provided, the window will be moved
+    to include that line
+arguments:
+  path:
+    type: str
+    description: the path to the file to open
+    required: true
+  line_number:
+    type: int
+    description: the line number to move the window to (if not provided, the window will start at the top of the file)
+    required: false

@@ -29,7 +29,7 @@ def main(application_arguments: ApplicationArguments):
     application = Application(application_arguments, logger)
     logger.info(f"📙 Application starts with following Arguments: {application_arguments.dumps_yaml()}")
     agent = Agent(name="primary", agent_arguments=application_arguments.agent)
-    development_environment = DevelopmentEnvironment(application_arguments.development_environment_arguments)
+    development_environment = DevelopmentEnvironment(application_arguments.development_environment_arguments, logger)
     application.create_trajectory_directory()
     application.save_arguments()
 
@@ -70,7 +70,7 @@ def main(application_arguments: ApplicationArguments):
             agent_infos, trajectory = agent.run(
                 agent_setup_arguments=agent_setup_arguments,
                 development_environment=development_environment,
-                previous_commandline_response=reset_commandline_response,
+                initial_model_input=reset_commandline_response,
                 trajectory_path=application.get_trajectory_path(),
                 return_type="info_trajectory",
             )
@@ -104,6 +104,8 @@ if __name__ == "__main__":
         image_name="ghcr.io/scaphilo/swe-agent-environment:main",
         sourcecode_repository_path="princeton-nlp/SWE-bench_Lite",
         sourcecode_repository_type="HuggingFace",
+        sourcecode_repository_remote=" ",
+        sourcecode_repository_local="/tmp/sourcecode",
         split="dev",
         verbose=True,
         install_environment=False,

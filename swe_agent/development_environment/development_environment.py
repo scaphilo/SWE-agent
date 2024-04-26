@@ -1,12 +1,7 @@
-import logging
 import re
-
-from rich.logging import RichHandler
-
 from swe_agent.development_environment.development_environment_arguments import DevelopmentEnvironmentArguments
 from swe_agent.development_environment.docker_communication_interface import DockerCommunicationInterface
 from swe_agent.development_environment.git_communication_interface import GitCommunicationInterface
-from swe_agent.development_environment.utils import (LOGGER_NAME,)
 from typing import Tuple
 
 LONG_TIMEOUT = 500
@@ -21,38 +16,30 @@ class DevelopmentEnvironment:
 
     name = "swe_main"
 
-    def __init__(self, development_environment_arguments: DevelopmentEnvironmentArguments):
+    def __init__(self, development_environment_arguments: DevelopmentEnvironmentArguments, logger):
         super().__init__()
         self.split = development_environment_arguments.split
+        self.sourcecode_repository_remote = development_environment_arguments.sourcecode_repository_remote
+        self.sourcecode_repository_local = development_environment_arguments.sourcecode_repository_local
         self.sourcecode_repository_path = development_environment_arguments.sourcecode_repository_path
         self.no_mirror = development_environment_arguments.no_mirror
         self.sourcecode_repository_type = development_environment_arguments.sourcecode_repository_type
         self.container_name = development_environment_arguments.container_name
         self.install_python_environment = development_environment_arguments.install_environment
-        handler = RichHandler(show_time=False, show_path=False)
-        handler.setLevel(logging.DEBUG)
-        logger = logging.getLogger(LOGGER_NAME)
-        logger.setLevel(logging.DEBUG)
-        logger.addHandler(handler)
-        logger.propagate = False
         self.logger = logger
-        if not development_environment_arguments.verbose:
-            self.logger.disabled = True
-
-        # Establish connection with development environment container
         self.image_name = development_environment_arguments.image_name
         self.docker_communication_timeout = development_environment_arguments.docker_communication_timeout
         self.clean_multi_line_functions = lambda x: x
         self.docker_communication_interface = DockerCommunicationInterface(image_name=self.image_name,
                                                                            container_name=self.container_name,
                                                                            logger=self.logger)
-        self.git_communication_interface = GitCommunicationInterface(sourcecode_repository_path=self.sourcecode_repository_path,
+        self.git_communication_interface = GitCommunicationInterface(sourcecode_repository_remote=self.sourcecode_repository_remote,
+                                                                     sourcecode_repository_local=self.sourcecode_repository_local,
+                                                                     github_issue_url=self.sourcecode_repository_path,
                                                                      sourcecode_repository_type=self.sourcecode_repository_type,
                                                                      split=self.split,
                                                                      logger=self.logger,
-                                                                     install_python_environment=self.install_python_environment,
                                                                      no_mirror=self.no_mirror,
-                                                                     docker_communication=self.docker_communication_interface,
                                                                      timeout=LONG_TIMEOUT)
 
     def get_git_communication_interface(self):
@@ -93,7 +80,6 @@ class DevelopmentEnvironment:
         if match is None:
             return None
         return match.group(1)
-
 
     def handle_special_actions(self, special_action) -> Tuple[str, dict]:
         info = {}

@@ -1,0 +1,7 @@
+signature: scroll <direction>
+docstring: moves the window up or down {WINDOW} lines
+arguments:
+  direction:
+    type: str
+    description: can have value "up" or "down"
+    required: true

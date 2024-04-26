@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import re
 import select
 import subprocess
 import tarfile
@@ -15,13 +14,8 @@ from io import BytesIO
 from typing import List, Tuple, Dict
 
 LOGGER_NAME = "intercode"
-GITHUB_ISSUE_URL_PATTERN = re.compile(r'github\.com\/(.*?)\/(.*?)\/issues\/(\d+)')
 
 logger = logging.getLogger(LOGGER_NAME)
-
-
-def is_from_github_url(data_path: str):
-    return GITHUB_ISSUE_URL_PATTERN.search(data_path) is not None
 
 
 def copy_file_to_container(container, contents, container_path):
@@ -110,80 +104,6 @@ def read_with_timeout(container, pid_func, timeout_duration):
     if time.time() >= end_time:
         raise TimeoutError("Timeout reached while reading from subprocess.\nCurrent buffer: {}\nRunning PIDs: {}".format(buffer.decode(), pids))
     return buffer.decode()
-
-
-def get_commit(api: GhApi, owner: str, repo: str, base_commit: str = None):
-    if base_commit:
-        commit = api.repos.get_commit(owner, repo, base_commit)
-    else:
-        commit = api.repos.list_commits(owner, repo)[0]
-    return commit
-
-
-class InvalidGithubURL(ValueError):
-    ...
-
-
-def parse_gh_issue_url(issue_url: str) -> Tuple[str, str, str]:
-    """Return owner, repo, issue number from issue url"""
-    match = GITHUB_ISSUE_URL_PATTERN.search(issue_url)
-    if not match:
-        raise InvalidGithubURL(f"Invalid GitHub issue URL: {issue_url}")
-    res = match.groups()
-    assert len(res) == 3
-    return tuple(res)  # type: ignore
-
-
-def parse_gh_repo_url(repo_url: str) -> Tuple[str, str]:
-    """Return owner, repo from repo url"""
-    if not repo_url.startswith('http://') and not repo_url.startswith('https://'):
-        repo_url = 'https://' + repo_url
-    parts = repo_url.split('/')
-    owner = parts[3]
-    repo = parts[4]
-    return owner, repo
-
-
-def get_gh_issue_data(issue_url: str, *, token: str = ""):
-    """Returns github issue data in the form of a dictionary.
-    See https://docs.github.com/en/rest/issues/issues?apiVersion=2022-11-28#get-an-issue
-    for return format
-    """
-    owner, repo, issue_number = parse_gh_issue_url(issue_url)
-    api = GhApi(token=token)
-    return api.issues.get(owner, repo, issue_number)
-
-
-def fetch_github_issue_details(github_issue_url: str, base_commit: str = None, token: str = None) -> dict:
-    """
-    Fetches the GitHub issue details and constructs an instance.
-
-    Arguments:
-        github_issue_url (str): A GitHub issue URL.
-        token (str, optional): GitHub API token. Defaults to None.
-        base_commit:
-
-    Returns:
-        list: A list containing the constructed instance.
-    """
-
-    gitlab_details_dict = dict()
-    try:
-        owner, repo, issue_number = parse_gh_issue_url(github_issue_url)
-    except InvalidGithubURL:
-        pass
-    else:
-        api = GhApi(token=token)
-        issue = api.issues.get(owner, repo, issue_number)
-        title = issue.title if issue.title else ""
-        body = issue.body if issue.body else ""
-        text = f"{title}\n{body}\n"
-        gitlab_details_dict["repo"] = f"{owner}/{repo}"
-        gitlab_details_dict["base_commit"] = base_commit if base_commit else get_commit(api, owner, repo, base_commit).sha
-        gitlab_details_dict["version"] = gitlab_details_dict["base_commit"][:7]
-        gitlab_details_dict["problem_statement"] = text
-        gitlab_details_dict["instance_id"] = f"{owner}__{repo}-i{issue_number}"
-    return gitlab_details_dict
 
 
 def load_dataset_from_directory(file_path: str, split: str = None) -> dict:

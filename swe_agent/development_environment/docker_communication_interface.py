@@ -89,7 +89,8 @@ class DockerCommunicationInterface:
             else:
                 cmd = bash_command + "\n"
             self.logger.debug(f"Effective command sent to the development environment: {bash_command}.")
-            os.write(self.container.stdin.fileno(), cmd.encode())
+            encoded_command = cmd.encode()
+            os.write(self.container.stdin.fileno(), encoded_command)
             time.sleep(0.1)
             self.container.stdin.flush()
         except BrokenPipeError:

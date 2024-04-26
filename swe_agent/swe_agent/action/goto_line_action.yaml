@@ -1,0 +1,7 @@
+signature: goto_line <line_number>
+docstring: moves the window to show <line_number>
+arguments:
+  line_number:
+    type: int
+    description: the line number to move the window to
+    required: true

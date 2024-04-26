@@ -1,0 +1,11 @@
+signature: search_file <search_term> [<file>]
+docstring: searches for search_term in file. If file is not provided, searches in the current open file
+arguments:
+  search_term:
+    type: str
+    description: the term to search for
+    required: true
+  file:
+    type: str
+    description: the file to search in (if not provided, searches in the current open file)
+    required: false
