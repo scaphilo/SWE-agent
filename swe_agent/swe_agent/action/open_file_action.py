@@ -60,12 +60,10 @@ class OpenFileAction(Action):
             print("({} more lines below)".format(math.ceil(lines_below)))
 
 
-    def execute(self, logger,
-                window_size: int = None,
-                overlap: int = None,
-                current_line: int = None,
-                current_file: Path = None,
-                git_comm_interface: 'GitCommunicationInterface' = None):
+    def execute(self,
+                logger,
+                agent_status: 'AgentStatus' = None,
+                git_comm_interface: 'GitCommunicationInterface' = None) -> 'AgentStatus':
         logger.info(f'Open file called with: path={self.path}, line_number={self.line_number}')
 
         # Check if file exists and is not directory
@@ -91,9 +89,9 @@ class OpenFileAction(Action):
 
 
         # Call the _constrain_line function
-        new_current_line = self._constrain_line(current_file, new_current_line, window_size)
+        new_current_line = self._constrain_line(agent_status.current_file, new_current_line, agent_status.window_size)
 
         # Call the _print function
-        new_current_line = self._print(current_file, new_current_line, window_size)
+        new_current_line = self._print(agent_status.current_file, new_current_line, agent_status.window_size)
 
         return new_current_line

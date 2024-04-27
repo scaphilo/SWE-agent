@@ -48,10 +48,6 @@ class DevelopmentEnvironment:
     def get_docker_communication_interface(self):
         return self.docker_communication_interface
 
-    def reset(self, task_count: int = None, apply_test_patch: bool = False):
-        return self.git_communication_interface.reset(task_count=task_count,
-                                                      apply_test_patch=apply_test_patch)
-
     @staticmethod
     def is_bash_command(development_environment_command) -> bool:
         if development_environment_command in {"exit_context",

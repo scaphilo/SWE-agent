@@ -23,15 +23,12 @@ class SearchFileAction(Action):
 
     def execute(self,
                 logger,
-                window_size: int = None,
-                overlap: int = None,
-                current_line: int = None,
-                current_file: Path = None,
-                git_comm_interface: 'GitCommunicationInterface' = None):
+                agent_status: 'AgentStatus' = None,
+                git_comm_interface: 'GitCommunicationInterface' = None) -> 'AgentStatus':
         logger.info(f'Search file called with: search_term={self.search_term}, file={self.file}')
 
         # Check if file is provided, otherwise use currently opened file
-        filepath = self.file if self.file is not None else current_file
+        filepath = self.file if self.file is not None else agent_status.current_file
 
         # Check if file exists
         if not os.path.isfile(filepath):

@@ -24,11 +24,8 @@ class SearchDirAction(Action):
 
     def execute(self,
                 logger,
-                window_size: int = None,
-                overlap: int = None,
-                current_line: int = None,
-                current_file: Path = None,
-                git_comm_interface: 'GitCommunicationInterface' = None):
+                agent_status: 'AgentStatus' = None,
+                git_comm_interface: 'GitCommunicationInterface' = None) -> 'AgentStatus':
         logger.info(f'Search directory called with: search_term={self.search_term}, directory={self.dir}')
 
         # Set the default directory to current directory if none was provided

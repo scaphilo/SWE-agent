@@ -24,12 +24,10 @@ class FindFileAction(Action):
     def match(self, action_string: str):
         return bool(re.fullmatch(self.identification_string, action_string))
 
-    def execute(self, logger,
-                window_size: int = None,
-                overlap: int = None,
-                current_line: int = None,
-                current_file: Path = None,
-                git_comm_interface: 'GitCommunicationInterface' = None):
+    def execute(self,
+                logger,
+                agent_status: 'AgentStatus' = None,
+                git_comm_interface: 'GitCommunicationInterface' = None) -> 'AgentStatus':
         logger.info(f'Find file called with: filename={self.file_name}, directory={self.dir_path}')
 
         if not os.path.isdir(self.dir_path):

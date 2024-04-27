@@ -1,4 +1,5 @@
 import os
+import shutil
 import random
 import config
 from ghapi.core import GhApi
@@ -35,6 +36,8 @@ class GitCommunicationInterface:
         self.github_token = os.environ.get("GITHUB_TOKEN", None)
         self.timeout = timeout
         self.logger = logger
+        if os.path.exists(sourcecode_repository_local):
+            shutil.rmtree(sourcecode_repository_local)
         self.repo = Repo.clone_from(sourcecode_repository_remote, sourcecode_repository_local)
         # Get commit hash
         try:
@@ -56,7 +59,7 @@ class GitCommunicationInterface:
         else:
             raise UndefinedSourcecodeRepositoryType("The Sourcecode Repository Type: %s does not exist"
                                                     .format(self.sourcecode_repository_type))
-        self.logger.info(f"💽 Loaded dataset from {self.sourcecode_repository_path}")
+        self.logger.info(f"💽 Loaded dataset from {self.github_issue_url}")
 
     def get_issue_description(self):
         return self.issue_description

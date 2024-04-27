@@ -28,8 +28,10 @@ logging.getLogger("simple_parsing").setLevel(logging.WARNING)
 def main(application_arguments: ApplicationArguments):
     application = Application(application_arguments, logger)
     logger.info(f"📙 Application starts with following Arguments: {application_arguments.dumps_yaml()}")
-    agent = Agent(name="primary", agent_arguments=application_arguments.agent)
     development_environment = DevelopmentEnvironment(application_arguments.development_environment_arguments, logger)
+    agent = Agent(name="primary",
+                  agent_arguments=application_arguments.agent,
+                  development_environment=development_environment)
     application.create_trajectory_directory()
     application.save_arguments()
 
@@ -40,13 +42,10 @@ def main(application_arguments: ApplicationArguments):
             if application.should_skip(instance_id):
                 continue
             logger.info("▶️ Application begins with task " + str(task_count))
-            reset_commandline_response, agent_infos = development_environment.reset(task_count)
-            if agent_infos is None:
-                continue
 
             # Get info, patch information
             files = []
-            if "patch" in development_environment.get_git_communication_interface().get_repository_details_dict()["problem_statement"]:
+            if "patch" in development_environment.get_git_communication_interface().get_issue_description():
                 files = "\n".join(
                     [f"- {x.path}" for x in PatchSet(development_environment.get_git_communication_interface().get_repository_details_dict()["patch"]).modified_files]
                 )
@@ -69,8 +68,7 @@ def main(application_arguments: ApplicationArguments):
             }
             agent_infos, trajectory = agent.run(
                 agent_setup_arguments=agent_setup_arguments,
-                development_environment=development_environment,
-                initial_model_input=reset_commandline_response,
+                initial_model_input="",
                 trajectory_path=application.get_trajectory_path(),
                 return_type="info_trajectory",
             )

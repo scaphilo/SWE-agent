@@ -19,12 +19,10 @@ class CreateFileAction(Action):
     def match(self, action_string: str):
         return bool(re.fullmatch(self.identification_string, action_string))
 
-    def execute(self, logger,
-                window_size: int = None,
-                overlap: int = None,
-                current_line: int = None,
-                current_file: Path = None,
-                git_comm_interface: 'GitCommunicationInterface' = None):
+    def execute(self,
+                logger,
+                agent_status: 'AgentStatus' = None,
+                git_comm_interface: 'GitCommunicationInterface' = None) -> 'AgentStatus':
         logger.info(f'Create file called with: filename={self.filename}')
 
         if os.path.exists(self.filename):

@@ -20,18 +20,15 @@ class GoToLineAction(Action):
             self.line_number = int(match.group(1))
 
     def execute(self, logger,
-                window_size: int = None,
-                overlap: int = None,
-                current_line: int = None,
-                current_file: Path = None,
-                git_comm_interface: 'GitCommunicationInterface' = None) -> str:
+                agent_status: 'AgentStatus' = None,
+                git_comm_interface: 'GitCommunicationInterface' = None) -> 'AgentStatus':
         logger.info(f'Go to line called with: line_number={self.line_number}')
 
-        if current_file is None or self.line_number is None:
+        if agent_status.current_file is None or self.line_number is None:
             logger.error("No file open or line number provided.")
             return
 
-        with open(current_file, 'r') as file:
+        with open(agent_status.current_file, 'r') as file:
             max_line = sum(1 for _ in file)
 
         if self.line_number > max_line:

@@ -33,13 +33,37 @@ from swe_agent.swe_agent.action.search_dir_action import SearchDirAction
 logger = logging.getLogger(LOGGER_NAME)
 
 
+class AgentStatus:
+    def __init__(self,
+                 window_size=200,
+                 overlap=0,
+                 current_line=1,
+                 current_file=None,
+                 current_directory=None,
+                 last_action_return=None):
+        self.window_size = window_size
+        self.overlap = overlap
+        self.current_line = current_line
+        self.current_file = current_file
+        self.current_directory = current_directory
+        self.last_action_return = last_action_return
+
+    def get_status_as_dict(self):
+        status_dict = {attr: str(getattr(self, attr)) if getattr(self, attr) is not None else "not defined"
+                       for attr in vars(self)}
+        return status_dict
+
+
 class Agent:
     """Agent handles the behaviour of the large language model
     and how it interacts with the development environment."""
 
-    def __init__(self, name: str, agent_arguments: AgentArguments):
+    def __init__(self, name: str, agent_arguments: AgentArguments,
+                 development_environment: DevelopmentEnvironment):
         self.name = name
         self.config = agent_arguments.config
+        self.docker_communication_interface = development_environment.get_docker_communication_interface()
+        self.git_communication_interface = development_environment.get_git_communication_interface()
         self.agent_setup_arguments = None
         self._parse_command_patterns()
         self.history = []
@@ -49,19 +73,18 @@ class Agent:
                                   SearchDirAction(), SearchFileAction(),
                                   ScrollAction(), OpenFileAction(),
                                   SubmitAction()]
-        self.system_arguments = {
-            "command_docs": self.config.command_docs,
-            **self.config.env_variables,
-        }
-        self.model = get_model(model_arguments=agent_arguments.model,
-                               commands=self.model_commands)
+        self.agent_status = AgentStatus(current_directory=self.git_communication_interface.sourcecode_repository_local)
+        self.command_docs = {"command_docs": Action.get_action_descriptions(),}
+        self.model = get_model(model_arguments=agent_arguments.model)
 
     def setup(self, agent_setup_arguments: dict,
               initial_model_api_statistics: APIStats = None) -> None:
         """Set up the agent for a new instance."""
         self.model.reset_api_statistics(initial_model_api_statistics)
         self.agent_setup_arguments = agent_setup_arguments
-        system_message = self.config.system_message_template.format(**self.system_arguments)
+        system_message_dict = {**self.agent_status.get_status_as_dict(),
+                               **self.command_docs,}
+        system_message = self.config.system_message_template.format(**system_message_dict)
         logger.info(f"SYSTEM ({self.name})\n{system_message}")
         self.history = [
             {"role": "system", "content": system_message, "agent": self.name},
@@ -127,11 +150,11 @@ class Agent:
         return overall_history
 
     def save_trajectory(self, trajectory, trajectory_path: Path,
-                        env: DevelopmentEnvironment,
+                        docker_env: DockerCommunicationInterface,
                         git_comm_env: GitCommunicationInterface, info):
         log_path = trajectory_path / (git_comm_env.get_repository_details_dict()['instance_id'] + ".traj")
         log_dict = {
-            "environment": env.name,
+            "environment": docker_env.get_container_name(),
             "trajectory": trajectory,
             "history": self.history,
             "info": info,
@@ -185,11 +208,8 @@ class Agent:
         self.subroutine_patterns[self.config.submit_command] = submit_pat
         self.command_patterns[self.config.submit_command] = submit_pat
 
-    def run_model(self,
-                  previous_commandline_response: str,
-                  container_state: str) -> tuple[str, str, str]:
-        model_thought, model_action, model_output = self.run_model_with_error_correction(previous_commandline_response=previous_commandline_response,
-                                                                                         container_state=container_state)
+    def run_model(self) -> tuple[str, str, str]:
+        model_thought, model_action, model_output = self.run_model_with_error_correction()
 
         self.history.append(
             {"role": "assistant",
@@ -205,12 +225,12 @@ class Agent:
 
         return model_thought, model_action, model_output
 
-    def run_model_and_append_to_history(self, observation: str, state: str) -> str:
+    def run_model_and_append_to_history(self) -> str:
         """Query the model with the current state and observation with the appropriate template.
 
         Returns the model output."""
 
-        state_vars = json.loads(state)
+        state_vars = self.agent_status.get_status_as_dict()
 
         templates = []
         # Determine observation template based on what prior observation was
@@ -219,7 +239,7 @@ class Agent:
             templates = [self.config.instance_template]
             if self.config.strategy_template is not None:
                 templates.append(self.config.strategy_template)
-        elif observation is None or observation.strip() == "":
+        elif self.agent_status.last_action_return is None or self.agent_status.last_action_return.strip() == "":
             # Show no output template if observation content was empty
             templates = [self.config.next_step_no_output_template]
         else:
@@ -232,9 +252,8 @@ class Agent:
             messages.append(
                 template.format(
                     **self.agent_setup_arguments,
-                    **self.system_arguments,
-                    **state_vars,
-                    observation=(observation if observation is not None else ""),
+                    **self.command_docs,
+                    **self.agent_status.get_status_as_dict(),
                 )
             )
 
@@ -320,11 +339,9 @@ class Agent:
         logger.warning(f"Malformat limit reached: \n{model_output}")
         return "Exit due to format error", "exit_format", model_output
 
-    def run_model_with_error_correction(self,
-                                        previous_commandline_response: str,
-                                        container_state: str) -> tuple[str, str, str]:
+    def run_model_with_error_correction(self) -> tuple[str, str, str]:
         try:
-            model_output = self.run_model_and_append_to_history(previous_commandline_response, container_state)
+            model_output = self.run_model_and_append_to_history()
         except KeyboardInterrupt:
             raise
         except RuntimeError as e:
@@ -406,7 +423,6 @@ class Agent:
 
     def run(self,
             agent_setup_arguments: dict,
-            development_environment: DevelopmentEnvironment,
             initial_model_input: str = None,
             trajectory_path: Optional[Path] = None,
             return_type: Optional[str] = "info",
@@ -416,12 +432,10 @@ class Agent:
         Return the final value of the specified return type.
         """
         done = False
-        docker_communication_interface = development_environment.get_docker_communication_interface()
-        git_communication_interface = development_environment.get_git_communication_interface()
-        if docker_communication_interface.get_container_obj().id != self.last_container_id:
-            logger.info(f"Initializing agent settings for container {docker_communication_interface.get_container_obj().id}")
-            self.init_environment_vars(docker_communication_interface)
-            self.last_container_id = docker_communication_interface.container_obj.id
+        if self.docker_communication_interface.get_container_obj().id != self.last_container_id:
+            logger.info(f"Initializing agent settings for container {self.docker_communication_interface.get_container_obj().id}")
+            self.init_environment_vars(self.docker_communication_interface)
+            self.last_container_id = self.docker_communication_interface.container_obj.id
         # Re-initialize primary
         self.setup(agent_setup_arguments=agent_setup_arguments,
                    initial_model_api_statistics=init_model_stats)
@@ -429,35 +443,30 @@ class Agent:
         # Run action/observation loop
         trajectory = []
         agent_infos = {}
-        state = "initialized"
         exit_code = "0"
-        previous_action_response = initial_model_input
+        self.agent_status.last_action_return = initial_model_input
         while not done:
-            model_thought, model_action, model_output = self.run_model(previous_commandline_response=previous_action_response,
-                                                                       container_state=state)
-            new_commandline_response = ""
+            model_thought, model_action, model_output = self.run_model()
             action = Action.parse_action(model_action)
             if action is None:
                 logger.info("Command " + model_action + " not found")
-                new_commandline_response = "Command " + model_action + " not found"
+                new_agent_status = self.agent_status
+                new_agent_status.last_action_return = "Command " + model_action + " not found"
             else:
                 if type(action) is SubmitAction:
                     done = True
                 if done:
                     break
-                new_commandline_response = action.execute(logger=logger,
-                                                          window_size=self.window_size,
-                                                          overlap=self.overlap,
-                                                          current_line=self.current_line,
-                                                          current_file=self.current_file,
-                                                          git_comm_interface=git_communication_interface)
+                new_agent_status = action.execute(logger=logger,
+                                                  agent_status=self.agent_status,
+                                                  git_comm_interface=self.git_communication_interface)
 
             trajectory.append(
                 {
                     "action": model_action,
-                    "observation": new_commandline_response,
+                    "observation": new_agent_status.last_action_return,
                     "response": model_output,
-                    "state": state,
+                    "state": new_agent_status.get_status_as_dict(),
                     "thought": model_thought,
                 }
             )
@@ -465,11 +474,11 @@ class Agent:
             if trajectory_path:
                 self.save_trajectory(trajectory=trajectory,
                                      trajectory_path=trajectory_path,
-                                     env=development_environment,
-                                     git_comm_env=git_communication_interface,
+                                     docker_env=self.docker_communication_interface,
+                                     git_comm_env=self.git_communication_interface,
                                      info=agent_infos)
 
-            previous_action_response = new_commandline_response
+            self.agent_status = new_agent_status
         if return_type == "info":
             return agent_infos
         if return_type == "info_trajectory":

@@ -17,12 +17,10 @@ class SubmitAction(Action):
     def parse(self, action_string: str):
         return  # There are no additional arguments to parse in this action
 
-    def execute(self, logger,
-                window_size: int = None,
-                overlap: int = None,
-                current_line: int = None,
-                current_file: Path = None,
-                git_comm_interface: GitCommunicationInterface = None):
+    def execute(self,
+                logger,
+                agent_status: 'AgentStatus' = None,
+                git_comm_interface: GitCommunicationInterface = None) -> 'AgentStatus':
         logger.info(f'Submit action called.')
 
         root_dir = os.getenv('ROOT')
