@@ -39,13 +39,14 @@ class OpenFileAction(Action):
         with open(current_file, 'r') as f:
             total_lines = sum(1 for line in f)
 
-        lines_above = max(current_line - window/2, 0)
-        lines_below = max(total_lines - current_line - window/2, 0)
-
         with open(current_file, 'r') as f:
             lines = f.readlines()
-        read_lines = ''.join(lines[math.floor(max(current_line + window/2, window/2) - window):math.floor(max(current_line + window/2, window/2))])
 
+        start_line = math.floor(max(min(current_line + window/2, total_lines) - window, 0))
+        end_line = math.floor(min(current_line + window/2, total_lines))
+        read_lines = ''
+        for i in range(start_line, end_line):
+            read_lines += f'[{i+1}] {lines[i]}'
         return read_lines
 
     def execute(self,
@@ -64,7 +65,7 @@ class OpenFileAction(Action):
             new_agent_status.last_action_return = error_msg
             return new_agent_status
 
-        if self.line_number is not 0:
+        if self.line_number != 0:
             # Open file and compute the number of lines
             with open(absolute_path, 'r') as file:
                 max_line = sum(1 for _ in file)
