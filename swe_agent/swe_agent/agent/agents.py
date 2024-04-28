@@ -28,6 +28,8 @@ from swe_agent.swe_agent.action.scroll_action import ScrollAction
 from swe_agent.swe_agent.action.submit_action import SubmitAction
 from swe_agent.swe_agent.action.search_file_action import SearchFileAction
 from swe_agent.swe_agent.action.search_dir_action import SearchDirAction
+from swe_agent.swe_agent.action.list_files_action import ListFilesAction
+from swe_agent.swe_agent.action.change_directory_action import ChangeDirectoryAction
 
 
 logger = logging.getLogger(LOGGER_NAME)
@@ -35,12 +37,12 @@ logger = logging.getLogger(LOGGER_NAME)
 
 class AgentStatus:
     def __init__(self,
-                 window_size=200,
-                 overlap=0,
-                 current_line=1,
-                 current_file=None,
-                 current_directory=None,
-                 last_action_return=None):
+                 window_size: int = 200,
+                 overlap: int = 0,
+                 current_line: int = 1,
+                 current_file: str = None,
+                 current_directory: Path = None,
+                 last_action_return: str = None):
         self.window_size = window_size
         self.overlap = overlap
         self.current_line = current_line
@@ -72,8 +74,9 @@ class Agent:
                                   FindFileAction(), GoToLineAction(),
                                   SearchDirAction(), SearchFileAction(),
                                   ScrollAction(), OpenFileAction(),
-                                  SubmitAction()]
-        self.agent_status = AgentStatus(current_directory=self.git_communication_interface.sourcecode_repository_local)
+                                  SubmitAction(), ListFilesAction(),
+                                  ChangeDirectoryAction()]
+        self.agent_status = AgentStatus(current_directory=Path(self.git_communication_interface.sourcecode_repository_local))
         self.command_docs = {"command_docs": Action.get_action_descriptions(),}
         self.model = get_model(model_arguments=agent_arguments.model)
 
@@ -447,7 +450,7 @@ class Agent:
         self.agent_status.last_action_return = initial_model_input
         while not done:
             model_thought, model_action, model_output = self.run_model()
-            action = Action.parse_action(model_action)
+            action = Action.find_action(model_action)
             if action is None:
                 logger.info("Command " + model_action + " not found")
                 new_agent_status = self.agent_status
@@ -457,6 +460,7 @@ class Agent:
                     done = True
                 if done:
                     break
+                action.parse(model_action)
                 new_agent_status = action.execute(logger=logger,
                                                   agent_status=self.agent_status,
                                                   git_comm_interface=self.git_communication_interface)

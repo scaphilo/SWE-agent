@@ -1,0 +1,8 @@
+signature: cd <folder>
+docstring: opens the folder at the given path in the editor. when change of the directory was successful, the editor
+ will return list of files in the.
+arguments:
+  folder:
+    type: str
+    description: the path to the folder to open
+    required: true

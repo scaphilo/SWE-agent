@@ -1,5 +1,6 @@
 import re
 import math
+import copy
 from pathlib import Path
 from swe_agent.swe_agent.action.action import Action
 
@@ -22,21 +23,32 @@ class GoToLineAction(Action):
     def execute(self, logger,
                 agent_status: 'AgentStatus' = None,
                 git_comm_interface: 'GitCommunicationInterface' = None) -> 'AgentStatus':
+
+        new_agent_status = copy.deepcopy(agent_status)
         logger.info(f'Go to line called with: line_number={self.line_number}')
 
         if agent_status.current_file is None or self.line_number is None:
-            logger.error("No file open or line number provided.")
-            return
+            log_string = "No file open or line number provided."
+            logger.error(log_string)
+            new_agent_status.last_action_return = log_string
+            return new_agent_status
 
         with open(agent_status.current_file, 'r') as file:
             max_line = sum(1 for _ in file)
 
         if self.line_number > max_line:
-            logger.error(f"Requested line number is greater than the total number of lines {max_line}.")
-            return
+            log_string = f"Requested line number is greater than the total number of lines {max_line}."
+            logger.error(log_string)
+            new_agent_status.last_action_return = log_string
+            return new_agent_status
 
-        # I'm not sure what were the semantics of your constraints, thus you might need to adjust following lines
-        offset = math.floor(window_size / 6)
-        new_current_line = max(self.line_number + math.floor(window_size / 2) - offset, 1)
+        offset = math.floor(agent_status.window_size / 6)
+        new_current_line = max(self.line_number + math.floor(agent_status.window_size / 2) - offset, 1)
+        new_agent_status.current_line = new_current_line
 
-        logger.info(f"Moved cursor to line {new_current_line}.")
+        log_string = f"Moved cursor to line {new_current_line}."
+        logger.info(log_string)
+
+        new_agent_status.last_action_return = log_string
+
+        return new_agent_status

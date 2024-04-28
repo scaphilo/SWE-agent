@@ -1,6 +1,7 @@
 import os
-import fnmatch
+import copy
 import re
+import fnmatch
 from pathlib import Path
 from swe_agent.swe_agent.action.action import Action
 
@@ -30,9 +31,13 @@ class FindFileAction(Action):
                 git_comm_interface: 'GitCommunicationInterface' = None) -> 'AgentStatus':
         logger.info(f'Find file called with: filename={self.file_name}, directory={self.dir_path}')
 
+        new_agent_status = copy.deepcopy(agent_status)
+
         if not os.path.isdir(self.dir_path):
-            logger.error(f"Directory {self.dir_path} not found")
-            return
+            log_string = f"Directory {self.dir_path} not found"
+            logger.error(log_string)
+            new_agent_status.last_action_return = log_string
+            return new_agent_status
 
         matches = []
         for dirpath, dirs, files in os.walk(self.dir_path):
@@ -40,9 +45,16 @@ class FindFileAction(Action):
                 matches.append(os.path.join(dirpath, filename))
 
         if not matches:
-            logger.error(f"No matches found for \"{self.file_name}\" in {self.dir_path}")
-            return
+            log_string = f"No matches found for \"{self.file_name}\" in {self.dir_path}"
+            logger.error(log_string)
+            new_agent_status.last_action_return = log_string
+            return new_agent_status
 
-        logger.info(f"Found {len(matches)} matches for \"{self.file_name}\" in {self.dir_path}")
+        log_string = f"Found {len(matches)} matches for \"{self.file_name}\" in {self.dir_path}"
+        logger.info(log_string)
         for filename in matches:
             logger.info(filename)
+
+        new_agent_status.last_action_return = log_string + '\n' + '\n'.join(matches)
+
+        return new_agent_status

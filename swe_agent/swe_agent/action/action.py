@@ -6,7 +6,7 @@ class Action(ABC):
     actions = []
 
     @staticmethod
-    def parse_action(action_string: str):
+    def find_action(action_string: str):
         for action_object in Action.actions:
             if action_object.match(action_string):
                 return action_object

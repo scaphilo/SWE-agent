@@ -1,0 +1,2 @@
+signature: ls
+docstring: runs the ls command in the prompt to list all files in a directory

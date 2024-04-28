@@ -1,5 +1,6 @@
 import os
 import re
+import copy
 import fnmatch
 from pathlib import Path
 from swe_agent.swe_agent.action.action import Action
@@ -26,15 +27,19 @@ class SearchDirAction(Action):
                 logger,
                 agent_status: 'AgentStatus' = None,
                 git_comm_interface: 'GitCommunicationInterface' = None) -> 'AgentStatus':
+
+        new_agent_status = copy.deepcopy(agent_status)
         logger.info(f'Search directory called with: search_term={self.search_term}, directory={self.dir}')
 
-        # Set the default directory to current directory if none was provided
+        # Set the default directory to the current directory if none was provided
         dir_path = self.dir if self.dir is not None else '.'
 
         # Check if directory exists
         if not os.path.isdir(dir_path):
-            logger.error("Directory path is not valid.")
-            return
+            error_msg = "Directory path is not valid."
+            logger.error(error_msg)
+            new_agent_status.last_action_return = error_msg
+            return new_agent_status
 
         matches = []
         # Walk through directory
@@ -48,4 +53,8 @@ class SearchDirAction(Action):
                         if self.search_term in line:
                             matches.append((filename, line_num, line.strip()))
 
-        logger.info(f'Found {len(matches)} matches for "{self.search_term}" in {dir_path}.')
+        match_report = f'Found {len(matches)} matches for "{self.search_term}" in {dir_path}.'
+        logger.info(match_report)
+        new_agent_status.last_action_return = match_report
+
+        return new_agent_status
