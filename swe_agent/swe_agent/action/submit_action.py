@@ -12,7 +12,7 @@ class SubmitAction(Action):
         self.description = Path(__file__).with_suffix('.yaml').read_text()
 
     def match(self, action_string: str):
-        return bool(re.fullmatch(self.identification_string, action_string))
+        return bool(re.fullmatch(self.identification_string, action_string.strip()))
 
     def parse(self, action_string: str):
         return  # There are no additional arguments to parse in this action
